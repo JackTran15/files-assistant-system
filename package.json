@@ -1,0 +1,13 @@
+{
+  "name": "@files-assistant/source",
+  "version": "0.0.0",
+  "license": "MIT",
+  "scripts": {},
+  "private": true,
+  "dependencies": {},
+  "devDependencies": {
+    "@nx/js": "22.6.3",
+    "@nx/workspace": "22.6.3",
+    "nx": "22.6.3"
+  }
+}
