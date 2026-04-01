@@ -1,19 +1,30 @@
+import { useCallback } from 'react';
 import { useChatStore } from '@/stores/chat-store';
+import { useFilesStore } from '@/stores/files-store';
 import { useAutoScroll } from '@/hooks/use-auto-scroll';
 import { MessageBubble } from './message-bubble';
 import { StreamingMessage } from './streaming-message';
 import { ThinkingIndicator } from './thinking-indicator';
 import { MessageSquare } from 'lucide-react';
+import type { ChatResponseSource } from '@/types/chat.types';
 
 export function MessageList() {
-  const { messages, streamingContent, isThinking, isStreaming } =
+  const { messages, streamingContent, streamingSources, isThinking, isStreaming } =
     useChatStore();
+  const highlightFile = useFilesStore((s) => s.highlightFile);
 
   const scrollRef = useAutoScroll([
     messages.length,
     streamingContent,
     isThinking,
   ]);
+
+  const handleSourceClick = useCallback(
+    (source: ChatResponseSource) => {
+      highlightFile(source.fileId);
+    },
+    [highlightFile],
+  );
 
   const isEmpty = messages.length === 0 && !isThinking && !isStreaming;
 
@@ -31,10 +42,19 @@ export function MessageList() {
       ) : (
         <div className="mx-auto max-w-3xl space-y-4">
           {messages.map((msg) => (
-            <MessageBubble key={msg.id} message={msg} />
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              onSourceClick={handleSourceClick}
+            />
           ))}
           {isThinking && <ThinkingIndicator />}
-          {streamingContent && <StreamingMessage content={streamingContent} />}
+          {streamingContent && (
+            <StreamingMessage
+              content={streamingContent}
+              sources={streamingSources.length ? streamingSources : undefined}
+            />
+          )}
         </div>
       )}
     </div>

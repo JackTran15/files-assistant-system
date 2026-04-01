@@ -19,6 +19,8 @@ export interface ChatSource {
   chunkIndex: number;
   content: string;
   score: number;
+  excerpt?: string;
+  pageNumber?: number;
 }
 
 export interface ConversationMetadata {

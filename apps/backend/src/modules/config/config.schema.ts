@@ -11,7 +11,6 @@ export const configSchema = z.object({
   WEAVIATE_GRPC_PORT: z.coerce.number().default(50051),
   WEAVIATE_SCHEME: z.enum(['http', 'https']).default('http'),
   REDPANDA_BROKER: z.string().default('localhost:19092'),
-  VOYAGE_API_KEY: z.string().default(''),
   GRPC_PORT: z.coerce.number().default(5050),
   BACKEND_PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),

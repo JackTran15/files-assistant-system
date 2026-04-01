@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { STORAGE_PORT } from '@files-assistant/core';
+import { OBJECT_STORAGE_PORT } from '@files-assistant/core';
 import { LocalStorageAdapter } from './local-storage.adapter';
 import { S3StorageAdapter } from './s3-storage.adapter';
 
@@ -8,7 +8,7 @@ import { S3StorageAdapter } from './s3-storage.adapter';
   imports: [ConfigModule],
   providers: [
     {
-      provide: STORAGE_PORT,
+      provide: OBJECT_STORAGE_PORT,
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const storageType = config.get<string>('STORAGE_TYPE', 'local');
@@ -16,6 +16,6 @@ import { S3StorageAdapter } from './s3-storage.adapter';
       },
     },
   ],
-  exports: [STORAGE_PORT],
+  exports: [OBJECT_STORAGE_PORT],
 })
 export class StorageModule {}

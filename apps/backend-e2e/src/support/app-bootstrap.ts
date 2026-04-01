@@ -10,7 +10,7 @@ const request = require('supertest');
 import { AppModule } from '../../../../apps/backend/src/app/app.module';
 import { IngestionConsumer } from '../../../../apps/agent/src/consumers/ingestion.consumer';
 import { KafkaEventAdapter } from '../../../../apps/agent/src/adapters/kafka-event.adapter';
-import { EMBEDDING_PORT } from '@files-assistant/core';
+import { STORAGE_PORT } from '@files-assistant/core';
 import { setAnthropicClient } from '../../../../apps/agent/src/tools/extract-text.tool';
 import { createMockAnthropicClient, MockAnthropicClient } from './mock-anthropic';
 import { createMockEmbeddingAdapter, MockEmbeddingAdapter } from './mock-embedding';
@@ -35,7 +35,7 @@ export interface TestContext {
   providers: [
     KafkaEventAdapter,
     {
-      provide: EMBEDDING_PORT,
+      provide: STORAGE_PORT,
       useValue: null,
     },
   ],
@@ -63,7 +63,7 @@ export async function bootstrapTestApps(): Promise<TestContext> {
   const agentModule: TestingModule = await Test.createTestingModule({
     imports: [TestAgentModule],
   })
-    .overrideProvider(EMBEDDING_PORT)
+    .overrideProvider(STORAGE_PORT)
     .useValue(mockEmbedding)
     .compile();
 

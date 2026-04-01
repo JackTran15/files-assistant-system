@@ -4,35 +4,24 @@ import { TOPICS, FileUploadedEvent } from '@files-assistant/events';
 import {
   AgentProcessingError,
   RecursiveTextChunker,
-  EMBEDDING_PORT,
-  EmbeddingPort,
-  ParentChunkData,
-  ChildChunkData,
+  STORAGE_PORT,
+  StoragePort,
 } from '@files-assistant/core';
 import { KafkaEventAdapter } from '../adapters/kafka-event.adapter';
 import { extractTextTool } from '../tools/extract-text.tool';
-import { detectSemanticBoundaries } from '../tools/semantic-chunker.tool';
-import { summarizeChunks } from '../tools/chunk-summarizer.tool';
-import Anthropic from '@anthropic-ai/sdk';
 
-let anthropicClient: Anthropic | null = null;
-
-export function setIngestionAnthropicClient(client: Anthropic): void {
-  anthropicClient = client;
-}
-
-const CHILD_CHUNK_SIZE = 500;
-const CHILD_CHUNK_OVERLAP = 100;
+const CHUNK_SIZE = 1500;
+const CHUNK_OVERLAP = 200;
 
 @Controller()
 export class IngestionConsumer {
   private readonly logger = new Logger(IngestionConsumer.name);
-  private readonly childChunker = new RecursiveTextChunker();
+  private readonly chunker = new RecursiveTextChunker();
 
   constructor(
     private readonly kafkaEventAdapter: KafkaEventAdapter,
-    @Inject(EMBEDDING_PORT)
-    private readonly embeddingAdapter: EmbeddingPort,
+    @Inject(STORAGE_PORT)
+    private readonly storageAdapter: StoragePort,
   ) {}
 
   @EventPattern(TOPICS.FILE_UPLOADED)
@@ -51,7 +40,12 @@ export class IngestionConsumer {
         fileId: event.fileId,
         storagePath: event.storagePath,
         mimeType: event.mimeType,
-      })) as { text: string; method: 'haiku' | 'raw'; fileId: string; characterCount: number };
+      })) as {
+        text: string;
+        method: 'haiku' | 'raw';
+        fileId: string;
+        characterCount: number;
+      };
       this.logger.log(
         `[${event.fileId}] Extracted ${text.length} chars via ${method}`,
       );
@@ -64,97 +58,41 @@ export class IngestionConsumer {
         characterCount: text.length,
       });
 
-      const haikuModel =
-        process.env['ANTHROPIC_HAIKU_MODEL'] || 'claude-haiku-4-5-20250414';
+      const { chunkOffsets } = this.chunker.chunk(text, {
+        chunkSize: CHUNK_SIZE,
+        chunkOverlap: CHUNK_OVERLAP,
+      });
+      this.logger.log(
+        `[${event.fileId}] Created ${chunkOffsets.length} chunks`,
+      );
 
-      if (!anthropicClient) {
+      if (chunkOffsets.length === 0) {
         throw new AgentProcessingError(
-          'Anthropic client not initialized for ingestion',
+          'Text produced zero chunks',
           'chunking',
           false,
         );
       }
 
-      this.logger.log(`[${event.fileId}] Detecting semantic boundaries`);
-      const boundaries = await detectSemanticBoundaries(
-        text,
-        anthropicClient,
-        haikuModel,
-      );
-      this.logger.log(
-        `[${event.fileId}] Found ${boundaries.length} semantic sections`,
-      );
-
-      const validBoundaries = boundaries.filter(
-        (b) => text.slice(b.startOffset, b.endOffset).trim().length > 0,
-      );
-      const parentTexts = validBoundaries.map((b) =>
-        text.slice(b.startOffset, b.endOffset),
-      );
-
-      this.logger.log(`[${event.fileId}] Summarizing ${parentTexts.length} parent chunks`);
-      const summaries = await summarizeChunks(
-        parentTexts,
-        anthropicClient,
-        haikuModel,
-      );
-
-      const parents: ParentChunkData[] = validBoundaries.map((b, i) => ({
-        content: parentTexts[i],
-        summary: summaries[i],
-        chunkIndex: i,
-        startOffset: b.startOffset,
-        endOffset: b.endOffset,
+      const metadata = chunkOffsets.map((c, i) => ({
         fileId: event.fileId,
         fileName: event.fileName,
+        chunkIndex: i,
+        startOffset: c.startOffset,
+        endOffset: c.endOffset,
       }));
 
-      const children: ChildChunkData[] = [];
-      let childIndex = 0;
-      for (let pi = 0; pi < parents.length; pi++) {
-        const { chunks: childTexts } = this.childChunker.chunk(
-          parents[pi].content,
-          { chunkSize: CHILD_CHUNK_SIZE, chunkOverlap: CHILD_CHUNK_OVERLAP },
-        );
-
-        let localOffset = parents[pi].startOffset;
-        for (const childText of childTexts) {
-          children.push({
-            content: childText,
-            chunkIndex: childIndex++,
-            parentChunkIndex: pi,
-            startOffset: localOffset,
-            endOffset: localOffset + childText.length,
-            fileId: event.fileId,
-            fileName: event.fileName,
-          });
-          localOffset += childText.length - CHILD_CHUNK_OVERLAP;
-        }
-      }
-
-      if (parents.length === 0) {
-        throw new AgentProcessingError(
-          'Text produced zero parent chunks',
-          'chunking',
-          false,
-        );
-      }
-
-      this.logger.log(
-        `[${event.fileId}] Embedding ${parents.length} parent summaries, storing ${children.length} child chunks`,
-      );
-
-      const result = await this.embeddingAdapter.embedAndStoreHierarchical(
-        parents,
-        children,
+      const result = await this.storageAdapter.storeChunks(
+        chunkOffsets.map((c) => c.content),
+        metadata,
         event.tenantId,
       );
 
       await this.kafkaEventAdapter.publishFileReady({
         fileId: event.fileId,
         tenantId: event.tenantId,
-        chunksCreated: parents.length + children.length,
-        vectorsStored: result.vectorsStored,
+        chunksCreated: result.chunksStored,
+        vectorsStored: 0,
       });
 
       this.logger.log(`[${event.fileId}] Ingestion complete`);

@@ -25,6 +25,19 @@ export interface ChatResponseEvent {
   timestamp: string;
 }
 
+export interface TextPart {
+  type: 'text';
+  content: string;
+}
+
+export interface CitationRefPart {
+  type: 'citation-ref';
+  refIndex: number;
+  sourceId?: string;
+}
+
+export type MessagePart = TextPart | CitationRefPart;
+
 export interface Message {
   id: string;
   conversationId: string;
@@ -32,6 +45,7 @@ export interface Message {
   content: string;
   sources?: ChatResponseSource[];
   confidenceScore?: number;
+  parts?: MessagePart[];
   createdAt: string;
 }
 

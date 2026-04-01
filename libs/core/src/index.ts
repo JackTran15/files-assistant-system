@@ -5,8 +5,8 @@ export * from './types/agent.types';
 
 // Ports
 export * from './ports/search.port';
+export * from './ports/object-storage.port';
 export * from './ports/storage.port';
-export * from './ports/embedding.port';
 
 // Extraction
 export * from './extraction/extractor.interface';

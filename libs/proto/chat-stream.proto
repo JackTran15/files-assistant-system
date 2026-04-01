@@ -22,6 +22,7 @@ message SourceRef {
   int32 chunk_index = 3;
   double score = 4;
   optional string excerpt = 5;
+  optional int32 page_number = 6;
 }
 
 message StreamResponseAck {

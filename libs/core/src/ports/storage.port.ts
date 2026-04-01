@@ -1,17 +1,13 @@
-import { Readable } from 'stream';
+import { ChunkMetadata } from '../types/file.types';
 
 export interface StoragePort {
-  save(
-    fileName: string,
-    data: Buffer | Readable,
+  storeChunks(
+    chunks: string[],
+    metadata: ChunkMetadata[],
     tenantId: string,
-  ): Promise<string>;
+  ): Promise<{ chunksStored: number }>;
 
-  read(storagePath: string): Promise<Buffer>;
-
-  delete(storagePath: string): Promise<void>;
-
-  exists(storagePath: string): Promise<boolean>;
+  deleteByFileId(fileId: string, tenantId: string): Promise<void>;
 }
 
 export const STORAGE_PORT = Symbol('STORAGE_PORT');

@@ -10,9 +10,6 @@ export interface FileChunkProperties {
   tenantId: string;
   startOffset: number;
   endOffset: number;
-  chunkType: 'parent' | 'child';
-  summary: string;
-  parentChunkIndex: number;
 }
 
 export async function ensureFileChunksCollection(
@@ -32,9 +29,6 @@ export async function ensureFileChunksCollection(
       { name: 'tenantId', dataType: 'text' },
       { name: 'startOffset', dataType: 'int' },
       { name: 'endOffset', dataType: 'int' },
-      { name: 'chunkType', dataType: 'text' },
-      { name: 'summary', dataType: 'text' },
-      { name: 'parentChunkIndex', dataType: 'int' },
     ],
   });
 }

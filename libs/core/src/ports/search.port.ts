@@ -1,15 +1,7 @@
 import { SearchResult } from '../types/agent.types';
 
 export interface SearchPort {
-  hybridSearch(
-    query: string,
-    tenantId: string,
-    limit?: number,
-    alpha?: number,
-    fileIds?: string[],
-  ): Promise<SearchResult[]>;
-
-  keywordSearch(
+  search(
     query: string,
     tenantId: string,
     limit?: number,

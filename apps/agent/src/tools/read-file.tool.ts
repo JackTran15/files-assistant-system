@@ -2,17 +2,20 @@ import { createTool } from '@voltagent/core';
 import { z } from 'zod';
 import type { SearchResult } from '@files-assistant/core';
 import { AgentProcessingError } from '@files-assistant/core';
-import type { WeaviateAdapter } from '../adapters/weaviate.adapter';
 
 const MAX_CONTENT_CHARS = parseInt(
   process.env['MAX_FILE_CONTENT_CHARS'] || '20000',
   10,
 );
 
-let weaviateAdapter: WeaviateAdapter | null = null;
+type FileChunksReader = {
+  getFileChunks(fileId: string, tenantId: string): Promise<SearchResult[]>;
+};
 
-export function setSearchAdapter(adapter: WeaviateAdapter): void {
-  weaviateAdapter = adapter;
+let fileChunksReader: FileChunksReader | null = null;
+
+export function setWeaviateAdapter(adapter: FileChunksReader): void {
+  fileChunksReader = adapter;
 }
 
 function selectRepresentativeChunks(
@@ -32,7 +35,13 @@ function selectRepresentativeChunks(
   const selected: SearchResult[] = [];
   let usedChars = 0;
 
-  const step = Math.max(1, Math.floor(chunks.length / Math.ceil(budget / (totalChars / chunks.length))));
+  const step = Math.max(
+    1,
+    Math.floor(
+      chunks.length /
+        Math.ceil(budget / (totalChars / chunks.length)),
+    ),
+  );
 
   for (let i = 0; i < chunks.length; i += step) {
     const chunk = chunks[i];
@@ -55,7 +64,9 @@ function selectRepresentativeChunks(
   let prevIndex = -1;
   for (const chunk of selected) {
     if (prevIndex >= 0 && chunk.chunkIndex > prevIndex + 1) {
-      parts.push(`\n[...skipped chunks ${prevIndex + 1}-${chunk.chunkIndex - 1}...]\n`);
+      parts.push(
+        `\n[...skipped chunks ${prevIndex + 1}-${chunk.chunkIndex - 1}...]\n`,
+      );
     }
     parts.push(chunk.content);
     prevIndex = chunk.chunkIndex;
@@ -68,48 +79,41 @@ function selectRepresentativeChunks(
   };
 }
 
-export const getFileContentTool = createTool({
-  name: 'getFileContent',
+export const readFileTool = createTool({
+  name: 'readFile',
   description:
-    'Retrieve text content of an uploaded file via its child chunks. For large files, returns evenly-sampled sections.',
+    'Read the text content of an uploaded file. For large files, returns evenly-sampled sections with skip markers.',
   parameters: z.object({
-    fileId: z.string().describe('File ID to retrieve content for'),
+    fileId: z.string().describe('File ID to read'),
     tenantId: z.string().describe('Tenant identifier'),
   }),
   execute: async (input) => {
-    if (!weaviateAdapter) {
+    if (!fileChunksReader) {
       throw new AgentProcessingError(
-        'Search adapter not configured. Call setSearchAdapter() during initialization.',
+        'File reader not configured. Call setWeaviateAdapter() during initialization.',
         'search',
         false,
       );
     }
 
     try {
-      const childChunks = await weaviateAdapter.getChildChunks(
+      const chunks = await fileChunksReader.getFileChunks(
         input.fileId,
         input.tenantId,
       );
 
-      if (childChunks.length === 0) {
-        const parentResults = await weaviateAdapter.keywordSearch(
-          input.fileId,
-          input.tenantId,
-          50,
-          [input.fileId],
-        );
-        const sorted = parentResults
-          .filter((r) => r.fileId === input.fileId)
-          .sort((a, b) => a.chunkIndex - b.chunkIndex);
-
-        const { content, includedChunks, totalChunks } =
-          selectRepresentativeChunks(sorted, MAX_CONTENT_CHARS);
-
-        return { fileId: input.fileId, content, includedChunks, totalChunks, sampled: includedChunks < totalChunks };
+      if (chunks.length === 0) {
+        return {
+          fileId: input.fileId,
+          content: '[No content found]',
+          includedChunks: 0,
+          totalChunks: 0,
+          sampled: false,
+        };
       }
 
       const { content, includedChunks, totalChunks } =
-        selectRepresentativeChunks(childChunks, MAX_CONTENT_CHARS);
+        selectRepresentativeChunks(chunks, MAX_CONTENT_CHARS);
 
       return {
         fileId: input.fileId,
@@ -121,7 +125,7 @@ export const getFileContentTool = createTool({
     } catch (error) {
       if (error instanceof AgentProcessingError) throw error;
       throw new AgentProcessingError(
-        `Failed to retrieve content for file ${input.fileId}: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to read file ${input.fileId}: ${error instanceof Error ? error.message : String(error)}`,
         'search',
         true,
         error instanceof Error ? error : undefined,

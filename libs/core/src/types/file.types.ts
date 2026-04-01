@@ -47,23 +47,3 @@ export interface ChunkMetadata {
   endOffset: number;
   tokenCount?: number;
 }
-
-export interface ParentChunkData {
-  content: string;
-  summary: string;
-  chunkIndex: number;
-  startOffset: number;
-  endOffset: number;
-  fileId: string;
-  fileName: string;
-}
-
-export interface ChildChunkData {
-  content: string;
-  chunkIndex: number;
-  parentChunkIndex: number;
-  startOffset: number;
-  endOffset: number;
-  fileId: string;
-  fileName: string;
-}

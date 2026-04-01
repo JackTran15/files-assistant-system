@@ -1,6 +1,6 @@
-import type { EmbeddingPort, ChunkMetadata, EmbeddingResult } from '@files-assistant/core';
+import type { StoragePort, ChunkMetadata } from '@files-assistant/core';
 
-export function createMockEmbeddingAdapter(): EmbeddingPort & {
+export function createMockEmbeddingAdapter(): StoragePort & {
   calls: Array<{ chunks: string[]; metadata: ChunkMetadata[]; tenantId: string }>;
   shouldFail: boolean;
   reset(): void;
@@ -9,25 +9,24 @@ export function createMockEmbeddingAdapter(): EmbeddingPort & {
     calls: [] as Array<{ chunks: string[]; metadata: ChunkMetadata[]; tenantId: string }>,
     shouldFail: false,
 
-    async embedAndStore(
+    async storeChunks(
       chunks: string[],
       metadata: ChunkMetadata[],
       tenantId: string,
-    ): Promise<EmbeddingResult> {
+    ): Promise<{ chunksStored: number }> {
       adapter.calls.push({ chunks, metadata, tenantId });
 
       if (adapter.shouldFail) {
         const { AgentProcessingError } = await import('@files-assistant/core');
         throw new AgentProcessingError(
-          'Mock embedding failure: rate limited',
+          'Mock storage failure: rate limited',
           'embedding',
           false,
         );
       }
 
       return {
-        vectorsStored: chunks.length,
-        collectionName: 'FileChunks',
+        chunksStored: chunks.length,
       };
     },
 

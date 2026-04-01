@@ -43,8 +43,9 @@ interface FileItemProps {
 }
 
 export function FileItemRow({ file }: FileItemProps) {
-  const { selectedFileIds, toggleFileSelection, removeFile } = useFilesStore();
+  const { selectedFileIds, toggleFileSelection, removeFile, highlightedFileId } = useFilesStore();
   const isSelected = selectedFileIds.has(file.id);
+  const isHighlighted = highlightedFileId === file.id;
   const config = statusConfig[file.status];
   const isReady = file.status === FileStatus.READY;
   const isProcessing = file.status === FileStatus.PROCESSING;
@@ -54,6 +55,7 @@ export function FileItemRow({ file }: FileItemProps) {
       className={cn(
         'group flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent',
         isSelected && 'bg-accent/50',
+        isHighlighted && 'ring-1 ring-primary bg-primary/5',
       )}
     >
       <Checkbox

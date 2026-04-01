@@ -1,15 +1,7 @@
-import {
-  SearchResult,
-  EmbeddingResult,
-  SearchPort,
-  EmbeddingPort,
-  ChunkMetadata,
-  ParentChunkData,
-  ChildChunkData,
-} from '@files-assistant/core';
+import { SearchResult, SearchPort } from '@files-assistant/core';
 
 export class StubSearchAdapter implements SearchPort {
-  async hybridSearch(
+  async search(
     query: string,
     _tenantId: string,
     limit = 5,
@@ -44,24 +36,7 @@ export class StubSearchAdapter implements SearchPort {
     ].slice(0, limit);
   }
 
-  async keywordSearch(
-    query: string,
-    _tenantId: string,
-    limit = 5,
-  ): Promise<SearchResult[]> {
-    return [
-      {
-        fileId: 'stub-file-1',
-        fileName: 'quarterly-report-q4.pdf',
-        chunkIndex: 0,
-        content: `Exact match result for keyword: "${query}". This section discusses the financial performance metrics.`,
-        score: 1.0,
-        metadata: { startOffset: 0, endOffset: 100 },
-      },
-    ].slice(0, limit);
-  }
-
-  async getChildChunks(
+  async getFileChunks(
     fileId: string,
     _tenantId: string,
   ): Promise<SearchResult[]> {
@@ -70,38 +45,10 @@ export class StubSearchAdapter implements SearchPort {
         fileId,
         fileName: 'quarterly-report-q4.pdf',
         chunkIndex: 0,
-        content: 'Stub child chunk content for dev mode.',
+        content: 'Stub file chunk content for dev mode.',
         score: 0,
         metadata: { startOffset: 0, endOffset: 40 },
       },
     ];
-  }
-}
-
-export class StubEmbeddingAdapter implements EmbeddingPort {
-  async embedAndStore(
-    chunks: string[],
-    _metadata: ChunkMetadata[],
-    _tenantId: string,
-  ): Promise<EmbeddingResult> {
-    return {
-      vectorsStored: chunks.length,
-      collectionName: 'StubCollection',
-    };
-  }
-
-  async embedAndStoreHierarchical(
-    parents: ParentChunkData[],
-    children: ChildChunkData[],
-    _tenantId: string,
-  ): Promise<EmbeddingResult> {
-    return {
-      vectorsStored: parents.length + children.length,
-      collectionName: 'StubCollection',
-    };
-  }
-
-  async deleteByFileId(_fileId: string, _tenantId: string): Promise<void> {
-    // no-op in stub
   }
 }

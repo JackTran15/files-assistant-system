@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { StoragePort } from '@files-assistant/core';
+import { ObjectStoragePort } from '@files-assistant/core';
 import { Readable } from 'stream';
 
 @Injectable()
-export class S3StorageAdapter implements StoragePort {
+export class S3StorageAdapter implements ObjectStoragePort {
   async save(_fileName: string, _data: Buffer | Readable, _tenantId: string): Promise<string> {
     // TODO: implement S3 upload
     throw new Error('S3 storage not implemented yet');

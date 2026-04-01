@@ -11,16 +11,12 @@ import {
   SearchResult,
   AgentProcessingError,
 } from '@files-assistant/core';
-import { VoyageEmbeddingAdapter } from './voyage-embedding.adapter';
 
 @Injectable()
 export class WeaviateAdapter implements SearchPort, OnModuleInit {
   private client!: WeaviateClient;
 
-  constructor(
-    private readonly config: ConfigService,
-    private readonly voyageAdapter: VoyageEmbeddingAdapter,
-  ) {}
+  constructor(private readonly config: ConfigService) {}
 
   async onModuleInit() {
     this.client = await getWeaviateClient({
@@ -35,7 +31,6 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
     collection: { filter: { byProperty(name: string): any } },
     tenantId: string,
     fileIds?: string[],
-    chunkType?: 'parent' | 'child',
   ) {
     const filters: any[] = [
       collection.filter.byProperty('tenantId').equal(tenantId),
@@ -47,68 +42,11 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
       );
     }
 
-    if (chunkType) {
-      filters.push(
-        collection.filter.byProperty('chunkType').equal(chunkType),
-      );
-    }
-
     if (filters.length === 1) return filters[0];
     return { operator: 'And', filters, value: null };
   }
 
-  async hybridSearch(
-    query: string,
-    tenantId: string,
-    limit = 10,
-    alpha = 0.75,
-    fileIds?: string[],
-  ): Promise<SearchResult[]> {
-    try {
-      const queryEmbedding =
-        await this.voyageAdapter.generateQueryEmbedding(query);
-      const collection = this.client.collections.get(FILE_CHUNKS_COLLECTION);
-
-      const result = await collection.query.hybrid(query, {
-        vector: queryEmbedding,
-        alpha,
-        limit,
-        filters: this.buildFilters(collection, tenantId, fileIds, 'parent'),
-        returnProperties: [
-          'content',
-          'fileId',
-          'fileName',
-          'chunkIndex',
-          'startOffset',
-          'endOffset',
-          'summary',
-        ],
-      });
-
-      return result.objects.map((obj) => ({
-        fileId: String(obj.properties.fileId),
-        fileName: String(obj.properties.fileName),
-        chunkIndex: Number(obj.properties.chunkIndex),
-        content: String(obj.properties.content),
-        summary: obj.properties.summary ? String(obj.properties.summary) : undefined,
-        score: obj.metadata?.score ?? 0,
-        metadata: {
-          startOffset: obj.properties.startOffset,
-          endOffset: obj.properties.endOffset,
-        },
-      }));
-    } catch (error) {
-      if (error instanceof AgentProcessingError) throw error;
-      throw new AgentProcessingError(
-        `Hybrid search failed: ${error instanceof Error ? error.message : String(error)}`,
-        'search',
-        true,
-        error instanceof Error ? error : undefined,
-      );
-    }
-  }
-
-  async keywordSearch(
+  async search(
     query: string,
     tenantId: string,
     limit = 10,
@@ -119,7 +57,7 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
 
       const result = await collection.query.bm25(query, {
         limit,
-        filters: this.buildFilters(collection, tenantId, fileIds, 'parent'),
+        filters: this.buildFilters(collection, tenantId, fileIds),
         returnProperties: [
           'content',
           'fileId',
@@ -127,7 +65,6 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
           'chunkIndex',
           'startOffset',
           'endOffset',
-          'summary',
         ],
       });
 
@@ -136,7 +73,6 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
         fileName: String(obj.properties.fileName),
         chunkIndex: Number(obj.properties.chunkIndex),
         content: String(obj.properties.content),
-        summary: obj.properties.summary ? String(obj.properties.summary) : undefined,
         score: obj.metadata?.score ?? 0,
         metadata: {
           startOffset: obj.properties.startOffset,
@@ -146,7 +82,7 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
     } catch (error) {
       if (error instanceof AgentProcessingError) throw error;
       throw new AgentProcessingError(
-        `Keyword search failed: ${error instanceof Error ? error.message : String(error)}`,
+        `Search failed: ${error instanceof Error ? error.message : String(error)}`,
         'search',
         true,
         error instanceof Error ? error : undefined,
@@ -154,31 +90,25 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
     }
   }
 
-  async getChildChunks(
+  async getFileChunks(
     fileId: string,
     tenantId: string,
-    parentChunkIndex?: number,
   ): Promise<SearchResult[]> {
     try {
       const collection = this.client.collections.get(FILE_CHUNKS_COLLECTION);
 
-      const filters: any[] = [
-        collection.filter.byProperty('tenantId').equal(tenantId),
-        collection.filter.byProperty('fileId').equal(fileId),
-        collection.filter.byProperty('chunkType').equal('child'),
-      ];
-
-      if (parentChunkIndex !== undefined) {
-        filters.push(
-          collection.filter
-            .byProperty('parentChunkIndex')
-            .equal(parentChunkIndex),
-        );
-      }
+      const filters = {
+        operator: 'And' as const,
+        filters: [
+          collection.filter.byProperty('tenantId').equal(tenantId),
+          collection.filter.byProperty('fileId').equal(fileId),
+        ],
+        value: null,
+      };
 
       const result = await collection.query.fetchObjects({
         limit: 500,
-        filters: { operator: 'And', filters, value: null },
+        filters,
         returnProperties: [
           'content',
           'fileId',
@@ -186,7 +116,6 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
           'chunkIndex',
           'startOffset',
           'endOffset',
-          'parentChunkIndex',
         ],
       });
 
@@ -200,14 +129,13 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
           metadata: {
             startOffset: obj.properties.startOffset,
             endOffset: obj.properties.endOffset,
-            parentChunkIndex: obj.properties.parentChunkIndex,
           },
         }))
         .sort((a, b) => a.chunkIndex - b.chunkIndex);
     } catch (error) {
       if (error instanceof AgentProcessingError) throw error;
       throw new AgentProcessingError(
-        `Failed to fetch child chunks for file ${fileId}: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to fetch chunks for file ${fileId}: ${error instanceof Error ? error.message : String(error)}`,
         'search',
         true,
         error instanceof Error ? error : undefined,

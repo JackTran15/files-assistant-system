@@ -8,6 +8,7 @@ import type {
 import { ChatRole } from '@/types/chat.types';
 import { api } from '@/lib/api';
 import { createSSEConnection } from '@/lib/sse';
+import { buildMessageParts } from '@/lib/parse-citations';
 
 const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? 'default-tenant';
 
@@ -197,13 +198,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   finalizeStream: (sources, confidenceScore) => {
     set((state) => {
+      const content = state.streamingContent;
+      const resolvedSources = sources ?? [];
       const assistantMessage: Message = {
         id: `msg-${Date.now()}`,
         conversationId: state.activeConversationId ?? '',
         role: ChatRole.ASSISTANT,
-        content: state.streamingContent,
-        sources: sources ?? [],
-        confidenceScore: confidenceScore ?? null,
+        content,
+        sources: resolvedSources,
+        confidenceScore: confidenceScore ?? undefined,
+        parts: buildMessageParts(content, resolvedSources),
         createdAt: new Date().toISOString(),
       };
 

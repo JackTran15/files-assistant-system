@@ -14,6 +14,8 @@ export interface StreamChunkOptions {
     fileName: string;
     chunkIndex: number;
     score: number;
+    excerpt?: string;
+    pageNumber?: number;
   }>;
   confidenceScore?: number;
   revision?: number;
@@ -34,6 +36,8 @@ interface ChatResponseChunk {
     fileName: string;
     chunkIndex: number;
     score: number;
+    excerpt?: string;
+    pageNumber?: number;
   }>;
   confidenceScore?: number;
   revision?: number;

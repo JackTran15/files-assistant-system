@@ -1,13 +1,13 @@
 # Files Assistant
 
-AI-powered files assistant that enables semantic search and Q&A over uploaded documents. Upload files (PDF, DOCX, plain text), the system extracts, chunks, and embeds the content, then a multi-agent AI system answers natural language questions grounded in the retrieved context (RAG).
+AI-powered files assistant for keyword search (BM25) and Q&A over uploaded documents. Upload files (PDF, plain text, markdown, JSON), the system runs **extract → chunk → store** (no vectors), then a single VoltAgent answers questions using **`searchFiles`** and **`readFile`** tools.
 
 ## Architecture
 
 Two independent services communicating through Redpanda (Kafka):
 
 - **Backend** (`apps/backend`) -- NestJS CRUD API, Multer uploads, Swagger docs, SSE streaming
-- **Agent** (`apps/agent`) -- VoltAgent multi-agent system (supervisor + 4 sub-agents), Kafka consumer
+- **Agent** (`apps/agent`) -- VoltAgent single chat agent + Kafka consumers (ingestion + chat)
 - **Agent Dev** (`apps/agent-dev`) -- Standalone VoltAgent dev server with VoltOps dashboard
 
 Shared libraries:
@@ -33,7 +33,7 @@ docker compose up -d
 
 # Copy environment variables
 cp .env.example .env
-# Edit .env with your ANTHROPIC_API_KEY and VOYAGE_API_KEY
+# Edit .env with your ANTHROPIC_API_KEY (and optional model overrides)
 
 # Start backend API (:3000)
 pnpm exec nx serve backend
@@ -85,7 +85,7 @@ http://localhost:3000/api/docs
 | `POST`   | `/api/files/upload`     | Upload a file for processing       |
 | `GET`    | `/api/files`            | List files (paginated)             |
 | `GET`    | `/api/files/:id`        | File details + status              |
-| `DELETE` | `/api/files/:id`        | Delete file + vectors              |
+| `DELETE` | `/api/files/:id`        | Delete file + Weaviate chunks      |
 | `GET`    | `/api/files/:id/events` | SSE: processing status             |
 | `POST`   | `/api/chat`             | Send chat message                  |
 | `GET`    | `/api/chat/stream/:id`  | SSE: stream response tokens        |
@@ -114,7 +114,7 @@ docker compose logs -f   # View logs
 files-assistant/
   apps/
     backend/          NestJS CRUD API + Kafka producer
-    agent/            VoltAgent multi-agent + Kafka consumer
+    agent/            VoltAgent agent + Kafka consumers
     agent-dev/        VoltAgent standalone dev server
   libs/
     core/             Pure TS: ports, types, extraction, chunking
@@ -129,10 +129,9 @@ files-assistant/
 | Monorepo           | Nx 22, pnpm, TypeScript 5.9                      |
 | Backend            | NestJS 11, TypeORM, Swagger, Multer              |
 | Agent              | VoltAgent, @ai-sdk/anthropic, Zod                |
-| Vector DB          | Weaviate (external vectors, hybrid search)        |
+| Search index       | Weaviate (`FileChunks`, BM25 on `content`; no vectors) |
 | Relational DB      | PostgreSQL 16                                    |
-| Embeddings         | Voyage AI (`voyage-3-lite`)                      |
-| LLM                | Anthropic Claude (Haiku + Sonnet via Vercel AI SDK) |
+| LLM                | Anthropic Claude via `@ai-sdk/anthropic` (`ANTHROPIC_MODEL`, `ANTHROPIC_HAIKU_MODEL`) |
 | Event Streaming    | Redpanda (Kafka-compatible)                      |
 | RPC Streaming      | gRPC (protobuf `ChatStream` service)             |
 | File Storage       | Local disk or S3 (configurable via `STORAGE_TYPE`) |
@@ -158,16 +157,14 @@ graph TB
     end
 
     subgraph Agent["Agent (NestJS µsvc)"]
-        SUP["VoltAgent Supervisor"]
-        AGENTS["5 Sub-Agents + Tools"]
-        KAFKA_CON["Kafka Consumer"]
+        FA["FilesAssistant<br/>searchFiles + readFile"]
+        KAFKA_CON["Kafka Consumers"]
         GRPC_S["gRPC Server"]
     end
 
     subgraph Storage
         PG[(PostgreSQL)]
-        WV[(Weaviate<br/>Vector DB)]
-        VOY["Voyage AI<br/>Embeddings"]
+        WV[(Weaviate<br/>BM25 index)]
     end
 
     Web -->|"HTTP POST"| API
@@ -176,9 +173,7 @@ graph TB
     KAFKA_CON -.->|"Kafka"| KC
     GRPC_S ==>|"gRPC stream"| GRPC_C
     ORM --> PG
-    SUP --> AGENTS
-    AGENTS --> WV
-    AGENTS --> VOY
+    FA --> WV
 ```
 
 ### Service Responsibilities
@@ -187,7 +182,7 @@ graph TB
 |---------|------|------------------|
 | **Web** | UI, file uploads, chat interface, SSE subscriptions | HTTP → Backend |
 | **Backend** | REST API, file metadata (Postgres), SSE streaming, Kafka fan-in/out, gRPC forwarding | HTTP, SSE, Kafka, gRPC |
-| **Agent** | LLM orchestration, document extraction, chunking, embedding, RAG search, chat responses | Kafka, gRPC, Weaviate, Voyage |
+| **Agent** | Ingestion (extract → chunk → store), chat (BM25 + read file), streaming responses | Kafka, gRPC, Weaviate |
 
 ### Transport Architecture
 
@@ -206,7 +201,7 @@ The system uses three transport layers with clearly separated concerns:
 | Store | Contents | Access Pattern |
 |-------|----------|----------------|
 | **PostgreSQL** | File metadata, chunk records, conversations, messages | TypeORM entities, migrations on startup |
-| **Weaviate** | Vector-embedded document chunks (`FileChunks` collection) | Hybrid search (vector + BM25), parent/child chunk hierarchy |
+| **Weaviate** | Text chunks (`FileChunks` collection, no vectors) | BM25 / keyword search on `content` |
 | **Local/S3** | Raw uploaded files | Configurable via `STORAGE_TYPE` env; path stored in Postgres file record |
 
 ### Kafka Topics & Consumer Groups
@@ -225,23 +220,18 @@ The system uses three transport layers with clearly separated concerns:
 
 | Library | Purpose | Key Exports |
 |---------|---------|-------------|
-| `libs/core` | Framework-agnostic types, ports, extractors, chunking | `EmbeddingPort`, `SearchPort`, `StoragePort`, `RecursiveTextChunker`, `AgentProcessingError` |
+| `libs/core` | Framework-agnostic types, ports, extractors, chunking | `SearchPort`, `StoragePort`, `ObjectStoragePort`, `RecursiveTextChunker`, `AgentProcessingError` |
 | `libs/events` | Kafka event contracts shared between services | `TOPICS`, `CONSUMER_GROUPS`, `DLQ_TOPICS`, Zod schemas, event factories |
 | `libs/weaviate` | Weaviate collection schema and client helpers | `FILE_CHUNKS_COLLECTION`, `ensureFileChunksCollection` |
 | `libs/proto` | gRPC service definition | `chat-stream.proto` — `ChatStream.StreamChatResponse` |
 
 ### Error Handling & Degradation
 
-The system degrades gracefully rather than returning errors to the user:
+Chat errors surface through the gRPC/SSE path; ingestion failures are published as `file.failed` with a **stage** (`extraction`, `chunking`, or `embedding` — the last name is kept for compatibility when **Weaviate storage** fails). Poison messages are routed to dead-letter queues.
 
-| Tier | Response Type | Condition |
-|------|--------------|-----------|
-| 1 | Cited response (high confidence) | Citation confidence ≥ 0.7 |
-| 2 | Cited response (low confidence) | Confidence < 0.7 after max retries (1) |
-| 3 | Raw uncited response | CitationAgent failed but SummaryAgent output exists |
-| 4 | Error response | Agent pipeline crashed entirely |
+### Migration (schema change)
 
-Ingestion failures are classified by stage (`extraction`, `chunking`, `embedding`) and published as `file.failed` events with specific error reasons. Poison messages are routed to dead-letter queues.
+If you previously ran the app when `FileChunks` used vectors, parent/child fields, or a different property set, **reset the collection** before ingesting again: call `resetFileChunksCollection` from `libs/weaviate` against your cluster, or remove the Weaviate Docker volume and let the stack recreate an empty store.
 
 ---
 
@@ -261,16 +251,16 @@ Ingestion failures are classified by stage (`extraction`, `chunking`, `embedding
 
 | Scenario | Asserts |
 |----------|---------|
-| Full PDF pipeline | extract → `file.extracted` → chunk → embed → `file.ready` |
+| Full PDF pipeline | extract → `file.extracted` → chunk → store → `file.ready` (`vectorsStored: 0`) |
 | TXT pipeline | `extractionMethod: 'raw'`, correct text passthrough |
 | Extraction error | `file.failed` with `stage: 'extraction'` |
-| Zero chunks produced | `file.failed` with `stage: 'chunking'`, no embed call |
-| Embedding error | `file.failed` with `stage: 'embedding'` |
-| Event ordering | `file.extracted` published before embedding begins |
+| Zero chunks produced | `file.failed` with `stage: 'chunking'`, no `storeChunks` call |
+| Storage error | `file.failed` with `stage: 'embedding'` (legacy stage name for Weaviate failures) |
+| Event ordering | `file.extracted` published before `storeChunks` |
 | Generic errors | Non-`AgentProcessingError` → `file.failed` with `stage: 'extraction'` |
 | Event payload fields | `file.extracted` and `file.ready` carry correct metadata |
 
-Mocks: `extractTextTool.execute`, `KafkaEventAdapter` methods, `EMBEDDING_PORT`.
+Mocks: `extractTextTool.execute`, `KafkaEventAdapter` methods, `STORAGE_PORT`.
 
 **`kafka-event.adapter.spec.ts`** — KafkaEventAdapter
 
@@ -326,7 +316,7 @@ Mocks: TypeORM repositories (`FileEntity`, `ChunkEntity`), `KafkaProducerService
 
 ### E2E Tests (`apps/backend-e2e`)
 
-Full integration tests against a real stack (Docker Compose with Postgres + Redpanda, mocked Anthropic + embeddings).
+Full integration tests against a real stack (Docker Compose with Postgres + Redpanda, mocked Anthropic + storage).
 
 **`ingestion-happy-path.e2e-spec.ts`**
 
@@ -380,8 +370,7 @@ Full integration tests against a real stack (Docker Compose with Postgres + Redp
 | `libs/weaviate` (collection helpers) | Jest config present, **no spec files** |
 | `apps/web` (React frontend) | **No test files** |
 | Chat pipeline (E2E) | Not covered in E2E suite |
-| WeaviateAdapter (hybrid/keyword search) | No dedicated unit tests |
-| VoyageEmbeddingAdapter (embeddings) | No dedicated unit tests |
+| WeaviateAdapter (BM25 search) | No dedicated unit tests |
 
 ---
 
@@ -389,153 +378,66 @@ Full integration tests against a real stack (Docker Compose with Postgres + Redp
 
 ### Overview
 
-The AI pipeline has two main flows: **Ingestion** (document processing) and **RAG** (retrieval-augmented generation for chat). Both are orchestrated by the Agent service using VoltAgent's multi-agent framework with Anthropic Claude models.
+Two flows: **Ingestion** (Kafka `file.uploaded` → extract → chunk → store in Weaviate) and **Chat** (Kafka `chat.request` → single **FilesAssistant** agent with tools). No embedding API and no multi-agent delegation.
 
 ### Models
 
-| Role | Env Variable | Fallback Model | Used For |
-|------|-------------|----------------|----------|
-| Supervisor | `ANTHROPIC_SUPERVISOR_MODEL` | `claude-haiku-4-5-20251001` | Task routing and orchestration |
-| Search Agent | `ANTHROPIC_SEARCH_MODEL` | `claude-haiku-4-5-20251001` | Search query processing |
-| Ingestion Agent | `ANTHROPIC_INGESTION_MODEL` | `claude-haiku-4-5-20251001` | Document processing |
-| Analysis Agent | `ANTHROPIC_ANALYSIS_MODEL` | `claude-sonnet-4-20250514` | Deep file analysis, comparison |
-| Summary Agent | `ANTHROPIC_SUMMARY_MODEL` | `claude-sonnet-4-20250514` | Document summarization |
-| Citation Agent | `ANTHROPIC_CITATION_MODEL` | `claude-haiku-4-5-20251001` | Citation scoring and verification |
-| PDF Extraction | `ANTHROPIC_HAIKU_MODEL` | `claude-haiku-4-5-20251001` | PDF text extraction |
-| Semantic Chunking | `ANTHROPIC_HAIKU_MODEL` | `claude-haiku-4-5-20250414` | Boundary detection + summaries |
-| Embeddings | — | `voyage-3-lite` (Voyage AI) | Vector embeddings for search |
+| Role | Env variable | Default (code) | Used for |
+|------|--------------|----------------|----------|
+| Chat | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Main agent (`searchFiles`, `readFile`) |
+| PDF extraction | `ANTHROPIC_HAIKU_MODEL` | `claude-haiku-4-5-20251001` | PDF → text via Anthropic Messages + `document` block |
 
-### Ingestion Pipeline
+### Ingestion pipeline
 
-Triggered by a `file.uploaded` Kafka event. Runs entirely within the Agent service.
+Triggered by `file.uploaded`. Implemented in `IngestionConsumer` (not LLM-orchestrated).
 
 ```mermaid
 flowchart LR
-    A[Upload] --> B[Extract]
-    B --> C[Publish<br/>file.extracted]
-    C --> D[Semantic<br/>Boundaries]
-    D --> E[Summarize<br/>Parents]
-    E --> F[Split Child<br/>Chunks]
-    F --> G[Embed &<br/>Store]
-    G --> H[Publish<br/>file.ready]
+    A[file.uploaded] --> B[Extract]
+    B --> C[Publish file.extracted]
+    C --> D[Chunk RecursiveTextChunker]
+    D --> E[Store Weaviate]
+    E --> F[Publish file.ready]
 ```
 
-**Step 1 — Extraction**
+| Step | Behavior |
+|------|----------|
+| Extract | PDF via Haiku + `document` block; plain text / MD / JSON via `fs.readFile`. |
+| Chunk | Heuristic `RecursiveTextChunker` (size/overlap constants in consumer). |
+| Store | `WeaviateStorageAdapter.storeChunks` — text properties only, **no vectors**. |
 
-| File Type | Method | Implementation |
-|-----------|--------|----------------|
-| PDF | `haiku` | Anthropic Messages API with `document` block (base64 PDF), `max_tokens: 16384` |
-| TXT, MD, JSON | `raw` | Direct UTF-8 `fs.readFile` |
+`file.ready` includes `chunksCreated` and `vectorsStored: 0`.
 
-Publishes `file.extracted` event with `parsedText`, `extractionMethod`, `characterCount`.
+### Chat pipeline (RAG)
 
-**Step 2 — Semantic Chunking (Hierarchical)**
+Triggered by `chat.request`. One **Agent** (`FilesAssistant`) runs with:
 
-1. **Detect semantic boundaries** — Anthropic Haiku analyzes the text in sliding windows (`WINDOW_SIZE = 20000`, `WINDOW_OVERLAP = 500`) and returns JSON boundary markers. Falls back to `RecursiveTextChunker` at `FALLBACK_CHUNK_SIZE = 3000` if LLM fails.
-2. **Summarize parent chunks** — Each semantic section is summarized by Haiku in batches of 5 (`BATCH_SIZE = 5`, `max_tokens: 4096`).
-3. **Split into child chunks** — Each parent is further split by `RecursiveTextChunker` with `CHILD_CHUNK_SIZE = 500`, `CHILD_CHUNK_OVERLAP = 100`.
-
-**Step 3 — Embedding & Storage**
-
-- **Parent chunks** are embedded using their **summary text** via Voyage AI (`voyage-3-lite`), stored in Weaviate with `chunkType: 'parent'` and their vector.
-- **Child chunks** are stored in Weaviate with `chunkType: 'child'` and **no vector** — they are retrieved by parent association for full-content access.
-- Retry logic: max 3 attempts with exponential backoff on HTTP 429.
-
-Publishes `file.ready` with `chunksCreated` (parents + children) and `vectorsStored` (parents only).
-
-### RAG Pipeline (Chat)
-
-Triggered by a `chat.request` Kafka event. The VoltAgent Supervisor orchestrates sub-agents.
+| Tool | Purpose |
+|------|---------|
+| `searchFiles` | BM25 search over Weaviate `FileChunks.content` (tenant-scoped; optional file scope from context). |
+| `readFile` | Full file text via stored chunks (`getFileChunks`), capped by `MAX_FILE_CONTENT_CHARS`. |
 
 ```mermaid
 flowchart LR
-    A[Query] --> B[Supervisor]
-    B --> C[SearchAgent<br/>hybrid search]
-    C --> D[SummaryAgent<br/>synthesize]
-    D --> E[CitationAgent<br/>verify]
-    E --> F[gRPC stream]
-    F --> G[SSE → Client]
+    Q[chat.request] --> A[FilesAssistant]
+    A --> T1[searchFiles]
+    A --> T2[readFile]
+    A --> G[gRPC StreamChatResponse]
+    G --> S[SSE to client]
 ```
 
-**Retrieval — SearchAgent Tools**
+Response tokens stream over gRPC to the Backend, then SSE to the browser. History is persisted in Postgres when the stream completes.
 
-| Tool | Method | Details |
-|------|--------|---------|
-| `hybridSearch` | Weaviate hybrid (vector + BM25) | `alpha: 0.75` (vector-weighted), parent chunks only, Voyage query embedding, default limit 5 |
-| `keywordSearch` | Weaviate BM25 | Parent chunks only, default limit 5 |
-| `getFileContent` | Child chunk retrieval | Fetches child chunks by `fileId`, limit 500, sorted by `chunkIndex`. Fallback: keyword search scoped to file. Max `20000` chars |
-
-**Generation & Citation**
-
-1. **SummaryAgent** synthesizes a response grounded in retrieved context with configurable detail levels (brief/detailed/comprehensive).
-2. **CitationAgent** scores the response using a weighted confidence formula:
-   - **Coverage (50%)** — Are all claims backed by source material?
-   - **Validity (30%)** — Are the cited sources genuine and correctly referenced?
-   - **Utilization (20%)** — Are available sources being used effectively?
-3. If confidence < `0.7`, the system retries (max 1 retry) — SummaryAgent re-generates with feedback, CitationAgent re-evaluates.
-
-**Streaming**
-
-Response tokens stream from the Supervisor through gRPC (`StreamChatResponse`) to the Backend, which bridges them into SSE events for the browser client. Conversation history is persisted to Postgres after streaming completes.
-
-### Multi-Agent Architecture
-
-```mermaid
-graph TB
-    subgraph Supervisor["Supervisor — FilesAssistant"]
-        SUP((Supervisor))
-    end
-
-    subgraph SearchAgent["SearchAgent<br/><i>Haiku</i>"]
-        SA_T1[hybridSearch]
-        SA_T2[keywordSearch]
-    end
-
-    subgraph IngestionAgent["IngestionAgent<br/><i>Haiku</i>"]
-        IA_T1[extractText]
-        IA_T2[chunkText]
-        IA_T3[embedAndStore]
-    end
-
-    subgraph AnalysisAgent["AnalysisAgent<br/><i>Sonnet</i>"]
-        AA_T1[getFileContent]
-        AA_T2[compareFiles]
-    end
-
-    subgraph SummaryAgent["SummaryAgent<br/><i>Sonnet</i>"]
-        SMA_T1[summarizeDocument]
-    end
-
-    subgraph CitationAgent["CitationAgent<br/><i>Haiku</i>"]
-        CA_T1[evaluateCitationConfidence]
-    end
-
-    SUP -->|delegates search| SearchAgent
-    SUP -->|delegates ingestion| IngestionAgent
-    SUP -->|delegates analysis| AnalysisAgent
-    SUP -->|delegates summarisation| SummaryAgent
-    SUP -->|delegates citation| CitationAgent
-```
-
-- The **Supervisor** never calls tools directly — it routes to the appropriate sub-agent.
-- **Sonnet** models are used where complex reasoning is needed (Analysis, Summary).
-- **Haiku** models handle high-throughput tasks (Search, Ingestion, Citation).
-- `includeAgentsMemory: true` — sub-agent context is shared back to the Supervisor.
-- `fullStreamEventForwarding` — `tool-call` and `text-delta` events stream in real-time.
-
-### Weaviate Collection Schema (`FileChunks`)
+### Weaviate collection schema (`FileChunks`)
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `content` | text | Chunk text content |
-| `fileId` | text | Source file identifier |
+| `content` | text | Chunk text (BM25 indexed) |
+| `fileId` | text | Source file id |
 | `fileName` | text | Original file name |
-| `chunkIndex` | int | Sequential position |
+| `chunkIndex` | int | Order within file |
 | `tenantId` | text | Tenant isolation |
-| `startOffset` | int | Character start offset in source |
-| `endOffset` | int | Character end offset in source |
-| `chunkType` | text | `'parent'` (has vector) or `'child'` (no vector) |
-| `summary` | text | LLM-generated summary (parents only) |
-| `parentChunkIndex` | int | Parent reference for child chunks |
+| `startOffset` | int | Start offset in source text |
+| `endOffset` | int | End offset in source text |
 
-Vectorizer: `none` (vectors supplied externally by Voyage AI).
+Vectorizer: `none` (no vectors).

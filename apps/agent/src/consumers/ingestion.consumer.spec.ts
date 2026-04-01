@@ -1,5 +1,5 @@
 import { AgentProcessingError } from '@files-assistant/core';
-import { EMBEDDING_PORT } from '@files-assistant/core';
+import { STORAGE_PORT } from '@files-assistant/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import { IngestionConsumer } from './ingestion.consumer';
 import { KafkaEventAdapter } from '../adapters/kafka-event.adapter';
@@ -38,8 +38,8 @@ function txtEvent() {
 describe('IngestionConsumer', () => {
   let consumer: IngestionConsumer;
   let kafkaAdapter: jest.Mocked<KafkaEventAdapter>;
-  let embeddingAdapter: {
-    embedAndStore: jest.Mock;
+  let storageAdapter: {
+    storeChunks: jest.Mock;
     deleteByFileId: jest.Mock;
   };
   const callOrder: string[] = [];
@@ -59,10 +59,10 @@ describe('IngestionConsumer', () => {
       publishFileFailed: jest.fn().mockResolvedValue(undefined),
     } as any;
 
-    embeddingAdapter = {
-      embedAndStore: jest.fn().mockImplementation(() => {
-        callOrder.push('embedAndStore');
-        return Promise.resolve({ vectorsStored: 3, collectionName: 'FileChunks' });
+    storageAdapter = {
+      storeChunks: jest.fn().mockImplementation(() => {
+        callOrder.push('storeChunks');
+        return Promise.resolve({ chunksStored: 3 });
       }),
       deleteByFileId: jest.fn(),
     };
@@ -71,7 +71,7 @@ describe('IngestionConsumer', () => {
       controllers: [IngestionConsumer],
       providers: [
         { provide: KafkaEventAdapter, useValue: kafkaAdapter },
-        { provide: EMBEDDING_PORT, useValue: embeddingAdapter },
+        { provide: STORAGE_PORT, useValue: storageAdapter },
       ],
     }).compile();
 
@@ -90,7 +90,7 @@ describe('IngestionConsumer', () => {
   });
 
   // 1. Successful PDF pipeline
-  it('runs full PDF pipeline: extract → extracted → chunk → embed → ready', async () => {
+  it('runs full PDF pipeline: extract → extracted → chunk → store → ready', async () => {
     await consumer.handleFileUploaded(pdfEvent());
 
     expect(mockExtract).toHaveBeenCalledWith({
@@ -99,13 +99,13 @@ describe('IngestionConsumer', () => {
       mimeType: 'application/pdf',
     });
     expect(kafkaAdapter.publishFileExtracted).toHaveBeenCalledTimes(1);
-    expect(embeddingAdapter.embedAndStore).toHaveBeenCalledTimes(1);
+    expect(storageAdapter.storeChunks).toHaveBeenCalledTimes(1);
     expect(kafkaAdapter.publishFileReady).toHaveBeenCalledWith(
       expect.objectContaining({
         fileId: 'file-1',
         tenantId: 'tenant-1',
         chunksCreated: expect.any(Number),
-        vectorsStored: 3,
+        vectorsStored: 0,
       }),
     );
     expect(kafkaAdapter.publishFileFailed).not.toHaveBeenCalled();
@@ -160,13 +160,13 @@ describe('IngestionConsumer', () => {
     expect(kafkaAdapter.publishFileFailed).toHaveBeenCalledWith(
       expect.objectContaining({ stage: 'chunking' }),
     );
-    expect(embeddingAdapter.embedAndStore).not.toHaveBeenCalled();
+    expect(storageAdapter.storeChunks).not.toHaveBeenCalled();
   });
 
-  // 5. Embedding failure publishes file.failed stage embedding
-  it('publishes file.failed with stage embedding on embed error', async () => {
-    embeddingAdapter.embedAndStore.mockRejectedValue(
-      new AgentProcessingError('Voyage rate limited', 'embedding', true),
+  // 5. Storage failure publishes file.failed stage embedding
+  it('publishes file.failed with stage embedding on store error', async () => {
+    storageAdapter.storeChunks.mockRejectedValue(
+      new AgentProcessingError('Weaviate unavailable', 'embedding', true),
     );
 
     await consumer.handleFileUploaded(pdfEvent());
@@ -174,21 +174,21 @@ describe('IngestionConsumer', () => {
     expect(kafkaAdapter.publishFileFailed).toHaveBeenCalledWith({
       fileId: 'file-1',
       tenantId: 'tenant-1',
-      error: 'Voyage rate limited',
+      error: 'Weaviate unavailable',
       stage: 'embedding',
     });
     expect(kafkaAdapter.publishFileReady).not.toHaveBeenCalled();
   });
 
   // 6. file.extracted is published before chunking
-  it('publishes file.extracted before embedding', async () => {
+  it('publishes file.extracted before storage', async () => {
     await consumer.handleFileUploaded(pdfEvent());
 
     const extractIdx = callOrder.indexOf('publishFileExtracted');
-    const embedIdx = callOrder.indexOf('embedAndStore');
+    const storeIdx = callOrder.indexOf('storeChunks');
     expect(extractIdx).toBeGreaterThanOrEqual(0);
-    expect(embedIdx).toBeGreaterThanOrEqual(0);
-    expect(extractIdx).toBeLessThan(embedIdx);
+    expect(storeIdx).toBeGreaterThanOrEqual(0);
+    expect(extractIdx).toBeLessThan(storeIdx);
   });
 
   // 7. Non-AgentProcessingError defaults to extraction stage
@@ -234,7 +234,7 @@ describe('IngestionConsumer', () => {
         fileId: 'file-1',
         tenantId: 'tenant-1',
         chunksCreated: expect.any(Number),
-        vectorsStored: 3,
+        vectorsStored: 0,
       }),
     );
     const call = kafkaAdapter.publishFileReady.mock.calls[0][0];

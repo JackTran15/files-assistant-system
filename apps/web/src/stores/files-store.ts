@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 interface FilesState {
   files: FileItem[];
   selectedFileIds: Set<string>;
+  highlightedFileId: string | null;
   isUploading: boolean;
   error: string | null;
 
@@ -13,6 +14,7 @@ interface FilesState {
   toggleFileSelection: (fileId: string) => void;
   selectAll: () => void;
   deselectAll: () => void;
+  highlightFile: (fileId: string | null) => void;
   updateFileStatus: (
     fileId: string,
     status: FileStatus,
@@ -24,6 +26,7 @@ interface FilesState {
 export const useFilesStore = create<FilesState>((set, get) => ({
   files: [],
   selectedFileIds: new Set(),
+  highlightedFileId: null,
   isUploading: false,
   error: null,
 
@@ -78,6 +81,10 @@ export const useFilesStore = create<FilesState>((set, get) => ({
 
   deselectAll: () => {
     set({ selectedFileIds: new Set() });
+  },
+
+  highlightFile: (fileId) => {
+    set({ highlightedFileId: fileId });
   },
 
   updateFileStatus: (fileId, status, error) => {

@@ -1,17 +1,23 @@
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import type { Message } from '@/types/chat.types';
+import { useState, useCallback } from 'react';
+import type { Message, ChatResponseSource } from '@/types/chat.types';
 import { ChatRole } from '@/types/chat.types';
 import { SourceCitations } from './source-citations';
+import { CitedMarkdown } from './cited-markdown';
 import { cn } from '@/lib/cn';
 import { Bot, User } from 'lucide-react';
 
 interface MessageBubbleProps {
   message: Message;
+  onSourceClick?: (source: ChatResponseSource) => void;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onSourceClick }: MessageBubbleProps) {
   const isUser = message.role === ChatRole.USER;
+  const [highlightedRef, setHighlightedRef] = useState<number | null>(null);
+
+  const handleCitationClick = useCallback((refIndex: number) => {
+    setHighlightedRef((prev) => (prev === refIndex ? null : refIndex));
+  }, []);
 
   return (
     <div className={cn('flex gap-2', isUser ? 'justify-end' : 'justify-start')}>
@@ -32,14 +38,19 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         ) : (
           <>
             <div className="prose prose-sm max-w-none dark:prose-invert prose-p:leading-relaxed prose-pre:bg-background">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {message.content}
-              </ReactMarkdown>
+              <CitedMarkdown
+                content={message.content}
+                sources={message.sources}
+                highlightedRef={highlightedRef}
+                onCitationClick={handleCitationClick}
+              />
             </div>
             {message.sources && message.sources.length > 0 && (
               <SourceCitations
                 sources={message.sources}
                 confidenceScore={message.confidenceScore}
+                highlightedRef={highlightedRef}
+                onSourceClick={onSourceClick}
               />
             )}
           </>

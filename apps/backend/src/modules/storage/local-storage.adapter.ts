@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { StoragePort } from '@files-assistant/core';
+import { ObjectStoragePort } from '@files-assistant/core';
 import { Readable } from 'stream';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 @Injectable()
-export class LocalStorageAdapter implements StoragePort {
+export class LocalStorageAdapter implements ObjectStoragePort {
   private basePath: string;
 
   constructor(private readonly config: ConfigService) {
