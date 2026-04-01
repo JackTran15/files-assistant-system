@@ -11,6 +11,7 @@ interface CollectedSearchResult {
 }
 
 const MAX_EXCERPT_CHARS = 200;
+const MIN_RELEVANCE_SCORE = 0.5;
 
 export class SourceCollector {
   private results: CollectedSearchResult[] = [];
@@ -39,6 +40,8 @@ export class SourceCollector {
     }> = [];
 
     for (const r of this.results) {
+      if (r.score < MIN_RELEVANCE_SCORE) continue;
+
       const key = `${r.fileId}:${r.chunkIndex}`;
       const existing = seen.get(key);
       if (existing) {

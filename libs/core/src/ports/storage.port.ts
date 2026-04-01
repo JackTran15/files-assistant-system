@@ -5,6 +5,7 @@ export interface StoragePort {
     chunks: string[],
     metadata: ChunkMetadata[],
     tenantId: string,
+    vectors?: number[][],
   ): Promise<{ chunksStored: number }>;
 
   deleteByFileId(fileId: string, tenantId: string): Promise<void>;

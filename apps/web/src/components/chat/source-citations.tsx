@@ -39,7 +39,9 @@ export function SourceCitations({
     }
   }, [highlightedRef]);
 
-  if (!sources || sources.length === 0) return null;
+  const relevantSources = sources?.filter((s) => s.score >= 0.5) ?? [];
+
+  if (relevantSources.length === 0) return null;
 
   return (
     <div className="mt-2 rounded-md border bg-card text-sm">
@@ -53,7 +55,7 @@ export function SourceCitations({
           <ChevronRight className="h-3 w-3" />
         )}
         <span>
-          {sources.length} source{sources.length > 1 ? 's' : ''}
+          {relevantSources.length} source{relevantSources.length > 1 ? 's' : ''}
         </span>
         {confidenceScore != null && (
           <span
@@ -73,7 +75,7 @@ export function SourceCitations({
 
       {isExpanded && (
         <div className="border-t px-3 py-2 space-y-2">
-          {sources.map((source, i) => {
+          {relevantSources.map((source, i) => {
             const isActive = highlightedRef === i + 1;
             return (
               <div

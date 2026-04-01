@@ -63,4 +63,16 @@ describe('buildMessageParts', () => {
       { type: 'text', content: ' apply.' },
     ]);
   });
+
+  it('should strip thinking blocks before parsing citations', () => {
+    const parts = buildMessageParts(
+      '<thinking>internal reasoning</thinking>Answer [1] here.',
+      sources,
+    );
+    expect(parts).toEqual([
+      { type: 'text', content: 'Answer ' },
+      { type: 'citation-ref', refIndex: 1, sourceId: 'f1:0' },
+      { type: 'text', content: ' here.' },
+    ]);
+  });
 });

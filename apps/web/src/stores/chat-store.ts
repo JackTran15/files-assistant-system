@@ -9,6 +9,10 @@ import { ChatRole } from '@/types/chat.types';
 import { api } from '@/lib/api';
 import { createSSEConnection } from '@/lib/sse';
 import { buildMessageParts } from '@/lib/parse-citations';
+import {
+  cleanAssistantContent,
+  extractThinkingAndContent,
+} from '@/lib/clean-content';
 
 const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? 'default-tenant';
 
@@ -20,7 +24,10 @@ interface ChatState {
   conversations: Conversation[];
   activeConversationId: string | null;
   messages: Message[];
+  /** Raw accumulated SSE text (pre-cleanup). Internal bookkeeping. */
+  _rawStream: string;
   streamingContent: string;
+  streamingThinking: string | null;
   streamingSources: ChatResponseSource[];
   isStreaming: boolean;
   isThinking: boolean;
@@ -44,7 +51,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   messages: [],
+  _rawStream: '',
   streamingContent: '',
+  streamingThinking: null,
   streamingSources: [],
   isStreaming: false,
   isThinking: false,
@@ -91,7 +100,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [...state.messages, userMessage],
       isThinking: true,
       isStreaming: true,
+      _rawStream: '',
       streamingContent: '',
+      streamingThinking: null,
       streamingSources: [],
       error: null,
       activeCorrelationId: null,
@@ -180,7 +191,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     set({
+      _rawStream: '',
       streamingContent: '',
+      streamingThinking: null,
       streamingSources: [],
       isStreaming: false,
       isThinking: false,
@@ -190,15 +203,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   appendStreamChunk: (chunk) => {
-    set((state) => ({
-      streamingContent: state.streamingContent + chunk,
-      isThinking: false,
-    }));
+    set((state) => {
+      const raw = state._rawStream + chunk;
+      const { thinking, content } = extractThinkingAndContent(raw, true);
+
+      return {
+        _rawStream: raw,
+        streamingContent: content,
+        streamingThinking: thinking,
+        isThinking: !content && !!thinking,
+      };
+    });
   },
 
   finalizeStream: (sources, confidenceScore) => {
     set((state) => {
-      const content = state.streamingContent;
+      const content = cleanAssistantContent(state._rawStream);
       const resolvedSources = sources ?? [];
       const assistantMessage: Message = {
         id: `msg-${Date.now()}`,
@@ -213,7 +233,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       return {
         messages: [...state.messages, assistantMessage],
+        _rawStream: '',
         streamingContent: '',
+        streamingThinking: null,
         streamingSources: [],
         isStreaming: false,
         isThinking: false,
@@ -247,7 +269,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({
       activeConversationId: id,
       messages: conversation?.messages ?? [],
+      _rawStream: '',
       streamingContent: '',
+      streamingThinking: null,
       isStreaming: false,
       isThinking: false,
       activeCorrelationId: null,

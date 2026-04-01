@@ -9,13 +9,20 @@ import { MessageSquare } from 'lucide-react';
 import type { ChatResponseSource } from '@/types/chat.types';
 
 export function MessageList() {
-  const { messages, streamingContent, streamingSources, isThinking, isStreaming } =
-    useChatStore();
+  const {
+    messages,
+    streamingContent,
+    streamingThinking,
+    streamingSources,
+    isThinking,
+    isStreaming,
+  } = useChatStore();
   const highlightFile = useFilesStore((s) => s.highlightFile);
 
   const scrollRef = useAutoScroll([
     messages.length,
     streamingContent,
+    streamingThinking,
     isThinking,
   ]);
 
@@ -27,6 +34,7 @@ export function MessageList() {
   );
 
   const isEmpty = messages.length === 0 && !isThinking && !isStreaming;
+  const showThinking = isThinking || (isStreaming && !!streamingThinking && !streamingContent);
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
@@ -48,7 +56,7 @@ export function MessageList() {
               onSourceClick={handleSourceClick}
             />
           ))}
-          {isThinking && <ThinkingIndicator />}
+          {showThinking && <ThinkingIndicator text={streamingThinking} />}
           {streamingContent && (
             <StreamingMessage
               content={streamingContent}

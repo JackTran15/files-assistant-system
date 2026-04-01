@@ -113,6 +113,9 @@ importers:
       uuid:
         specifier: ^13.0.0
         version: 13.0.0
+      voyageai:
+        specifier: ^0.2.1
+        version: 0.2.1(encoding@0.1.13)
       weaviate-client:
         specifier: ^3.12.0
         version: 3.12.0(encoding@0.1.13)
@@ -8663,6 +8666,18 @@ packages:
 
   voca@1.4.1:
     resolution: {integrity: sha512-NJC/BzESaHT1p4B5k4JykxedeltmNbau4cummStd4RjFojgq/kLew5TzYge9N2geeWyI2w8T30wUET5v+F7ZHA==}
+
+  voyageai@0.2.1:
+    resolution: {integrity: sha512-ym7Dk6p8Si6lR9wDh58EzxwT0ziD/pqXjzzzceOSySO3Ic3uosHZLOTAsb3Gq+1OaKdEMnni/p8TohKUNvLTkg==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      '@huggingface/transformers': ^3.8.0
+      onnxruntime-node: '>=1.17.0'
+    peerDependenciesMeta:
+      '@huggingface/transformers':
+        optional: true
+      onnxruntime-node:
+        optional: true
 
   vscode-jsonrpc@8.2.1:
     resolution: {integrity: sha512-kdjOSJ2lLIn7r1rtrMbbNCHjyMPfRnowdKjBQ+mGq6NAW5QY2bEZC/khaC5OR8svbbjvLEaIXkOq45e2X9BIbQ==}
@@ -18614,6 +18629,12 @@ snapshots:
       - yaml
 
   voca@1.4.1: {}
+
+  voyageai@0.2.1(encoding@0.1.13):
+    dependencies:
+      node-fetch: 2.7.0(encoding@0.1.13)
+    transitivePeerDependencies:
+      - encoding
 
   vscode-jsonrpc@8.2.1: {}
 

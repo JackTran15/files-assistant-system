@@ -32,6 +32,7 @@ export class WeaviateStorageAdapter implements StoragePort, OnModuleInit {
     chunks: string[],
     metadata: ChunkMetadata[],
     tenantId: string,
+    vectors?: number[][],
   ): Promise<{ chunksStored: number }> {
     if (chunks.length !== metadata.length) {
       throw new AgentProcessingError(
@@ -41,21 +42,33 @@ export class WeaviateStorageAdapter implements StoragePort, OnModuleInit {
       );
     }
 
+    if (vectors && vectors.length !== chunks.length) {
+      throw new AgentProcessingError(
+        'storeChunks: vectors and chunks length mismatch',
+        'embedding',
+        false,
+      );
+    }
+
     try {
       const collection = this.client.collections.get(FILE_CHUNKS_COLLECTION);
 
       for (let i = 0; i < chunks.length; i++) {
-        await collection.data.insert({
-          properties: {
-            content: chunks[i],
-            fileId: metadata[i].fileId,
-            fileName: metadata[i].fileName,
-            chunkIndex: metadata[i].chunkIndex,
-            tenantId,
-            startOffset: metadata[i].startOffset,
-            endOffset: metadata[i].endOffset,
-          },
-        });
+        const properties = {
+          content: chunks[i],
+          fileId: metadata[i].fileId,
+          fileName: metadata[i].fileName,
+          chunkIndex: metadata[i].chunkIndex,
+          tenantId,
+          startOffset: metadata[i].startOffset,
+          endOffset: metadata[i].endOffset,
+        };
+
+        await collection.data.insert(
+          vectors?.[i]
+            ? { properties, vectors: vectors[i] }
+            : { properties },
+        );
       }
 
       return { chunksStored: chunks.length };

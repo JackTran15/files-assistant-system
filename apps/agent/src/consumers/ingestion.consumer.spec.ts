@@ -1,5 +1,5 @@
 import { AgentProcessingError } from '@files-assistant/core';
-import { STORAGE_PORT } from '@files-assistant/core';
+import { STORAGE_PORT, EMBEDDING_PORT } from '@files-assistant/core';
 import { Test, TestingModule } from '@nestjs/testing';
 import { IngestionConsumer } from './ingestion.consumer';
 import { KafkaEventAdapter } from '../adapters/kafka-event.adapter';
@@ -42,6 +42,10 @@ describe('IngestionConsumer', () => {
     storeChunks: jest.Mock;
     deleteByFileId: jest.Mock;
   };
+  let embeddingAdapter: {
+    embedDocuments: jest.Mock;
+    embedQuery: jest.Mock;
+  };
   const callOrder: string[] = [];
 
   beforeEach(async () => {
@@ -67,11 +71,20 @@ describe('IngestionConsumer', () => {
       deleteByFileId: jest.fn(),
     };
 
+    embeddingAdapter = {
+      embedDocuments: jest.fn().mockImplementation((texts: string[]) => {
+        callOrder.push('embedDocuments');
+        return Promise.resolve(texts.map(() => new Array(1024).fill(0.1)));
+      }),
+      embedQuery: jest.fn().mockResolvedValue(new Array(1024).fill(0.1)),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [IngestionConsumer],
       providers: [
         { provide: KafkaEventAdapter, useValue: kafkaAdapter },
         { provide: STORAGE_PORT, useValue: storageAdapter },
+        { provide: EMBEDDING_PORT, useValue: embeddingAdapter },
       ],
     }).compile();
 
@@ -100,14 +113,17 @@ describe('IngestionConsumer', () => {
     });
     expect(kafkaAdapter.publishFileExtracted).toHaveBeenCalledTimes(1);
     expect(storageAdapter.storeChunks).toHaveBeenCalledTimes(1);
+    expect(embeddingAdapter.embedDocuments).toHaveBeenCalledTimes(1);
     expect(kafkaAdapter.publishFileReady).toHaveBeenCalledWith(
       expect.objectContaining({
         fileId: 'file-1',
         tenantId: 'tenant-1',
         chunksCreated: expect.any(Number),
-        vectorsStored: 0,
+        vectorsStored: expect.any(Number),
       }),
     );
+    const readyCall = kafkaAdapter.publishFileReady.mock.calls[0][0];
+    expect(readyCall.vectorsStored).toBeGreaterThan(0);
     expect(kafkaAdapter.publishFileFailed).not.toHaveBeenCalled();
   });
 
@@ -163,7 +179,25 @@ describe('IngestionConsumer', () => {
     expect(storageAdapter.storeChunks).not.toHaveBeenCalled();
   });
 
-  // 5. Storage failure publishes file.failed stage embedding
+  // 5a. Embedding failure publishes file.failed stage embedding
+  it('publishes file.failed with stage embedding on Voyage embed error', async () => {
+    embeddingAdapter.embedDocuments.mockRejectedValue(
+      new AgentProcessingError('Voyage API rate limit', 'embedding', true),
+    );
+
+    await consumer.handleFileUploaded(pdfEvent());
+
+    expect(kafkaAdapter.publishFileFailed).toHaveBeenCalledWith({
+      fileId: 'file-1',
+      tenantId: 'tenant-1',
+      error: 'Voyage API rate limit',
+      stage: 'embedding',
+    });
+    expect(storageAdapter.storeChunks).not.toHaveBeenCalled();
+    expect(kafkaAdapter.publishFileReady).not.toHaveBeenCalled();
+  });
+
+  // 5b. Storage failure publishes file.failed stage embedding
   it('publishes file.failed with stage embedding on store error', async () => {
     storageAdapter.storeChunks.mockRejectedValue(
       new AgentProcessingError('Weaviate unavailable', 'embedding', true),
@@ -234,10 +268,11 @@ describe('IngestionConsumer', () => {
         fileId: 'file-1',
         tenantId: 'tenant-1',
         chunksCreated: expect.any(Number),
-        vectorsStored: 0,
+        vectorsStored: expect.any(Number),
       }),
     );
     const call = kafkaAdapter.publishFileReady.mock.calls[0][0];
     expect(call.chunksCreated).toBeGreaterThan(0);
+    expect(call.vectorsStored).toBeGreaterThan(0);
   });
 });

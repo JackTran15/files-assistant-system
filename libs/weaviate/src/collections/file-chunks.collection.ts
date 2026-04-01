@@ -20,7 +20,11 @@ export async function ensureFileChunksCollection(
 
   await client.collections.create({
     name: FILE_CHUNKS_COLLECTION,
-    vectorizers: weaviate.configure.vectorizer.none(),
+    vectorizers: weaviate.configure.vectorizer.none({
+      vectorIndexConfig: weaviate.configure.vectorIndex.hnsw({
+        distanceMetric: 'cosine',
+      }),
+    }),
     properties: [
       { name: 'content', dataType: 'text' },
       { name: 'fileId', dataType: 'text' },

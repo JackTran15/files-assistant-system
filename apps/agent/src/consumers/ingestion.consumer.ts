@@ -6,6 +6,9 @@ import {
   RecursiveTextChunker,
   STORAGE_PORT,
   StoragePort,
+  EMBEDDING_PORT,
+  EmbeddingPort,
+  buildContextualTexts,
 } from '@files-assistant/core';
 import { KafkaEventAdapter } from '../adapters/kafka-event.adapter';
 import { extractTextTool } from '../tools/extract-text.tool';
@@ -22,6 +25,8 @@ export class IngestionConsumer {
     private readonly kafkaEventAdapter: KafkaEventAdapter,
     @Inject(STORAGE_PORT)
     private readonly storageAdapter: StoragePort,
+    @Inject(EMBEDDING_PORT)
+    private readonly embeddingAdapter: EmbeddingPort,
   ) {}
 
   @EventPattern(TOPICS.FILE_UPLOADED)
@@ -82,17 +87,28 @@ export class IngestionConsumer {
         endOffset: c.endOffset,
       }));
 
+      this.logger.log(
+        `[${event.fileId}] Embedding ${chunkOffsets.length} chunks via Voyage`,
+      );
+      const contextualTexts = buildContextualTexts(
+        text,
+        chunkOffsets,
+        event.fileName,
+      );
+      const vectors = await this.embeddingAdapter.embedDocuments(contextualTexts);
+
       const result = await this.storageAdapter.storeChunks(
         chunkOffsets.map((c) => c.content),
         metadata,
         event.tenantId,
+        vectors,
       );
 
       await this.kafkaEventAdapter.publishFileReady({
         fileId: event.fileId,
         tenantId: event.tenantId,
         chunksCreated: result.chunksStored,
-        vectorsStored: 0,
+        vectorsStored: vectors.length,
       });
 
       this.logger.log(`[${event.fileId}] Ingestion complete`);

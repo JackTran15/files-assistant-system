@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { WeaviateClient } from 'weaviate-client';
 import {
@@ -10,13 +10,23 @@ import {
   SearchPort,
   SearchResult,
   AgentProcessingError,
+  EMBEDDING_PORT,
+  EmbeddingPort,
 } from '@files-assistant/core';
+
+const DEFAULT_HYBRID_ALPHA = 0.75;
 
 @Injectable()
 export class WeaviateAdapter implements SearchPort, OnModuleInit {
+  private readonly logger = new Logger(WeaviateAdapter.name);
   private client!: WeaviateClient;
+  private alpha!: number;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @Inject(EMBEDDING_PORT)
+    private readonly embeddingAdapter: EmbeddingPort,
+  ) {}
 
   async onModuleInit() {
     this.client = await getWeaviateClient({
@@ -25,6 +35,10 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
       grpcPort: this.config.get<number>('WEAVIATE_GRPC_PORT'),
     });
     await ensureFileChunksCollection(this.client);
+    this.alpha =
+      parseFloat(this.config.get<string>('HYBRID_ALPHA') ?? '') ||
+      DEFAULT_HYBRID_ALPHA;
+    this.logger.log(`Hybrid search alpha: ${this.alpha}`);
   }
 
   private buildFilters(
@@ -54,9 +68,12 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
   ): Promise<SearchResult[]> {
     try {
       const collection = this.client.collections.get(FILE_CHUNKS_COLLECTION);
+      const queryVector = await this.embeddingAdapter.embedQuery(query);
 
-      const result = await collection.query.bm25(query, {
+      const result = await collection.query.hybrid(query, {
         limit,
+        alpha: this.alpha,
+        vector: queryVector,
         filters: this.buildFilters(collection, tenantId, fileIds),
         returnProperties: [
           'content',

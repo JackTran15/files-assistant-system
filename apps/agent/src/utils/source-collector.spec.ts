@@ -71,7 +71,7 @@ describe('SourceCollector', () => {
           fileName: 'a.pdf',
           chunkIndex: 0,
           content: 'text',
-          score: 0.3,
+          score: 0.6,
           metadata: {},
         },
         {
@@ -79,7 +79,7 @@ describe('SourceCollector', () => {
           fileName: 'b.pdf',
           chunkIndex: 0,
           content: 'text',
-          score: 0.8,
+          score: 0.9,
           metadata: {},
         },
       ],
@@ -87,8 +87,45 @@ describe('SourceCollector', () => {
     });
 
     const sources = collector.toStreamSources();
+    expect(sources).toHaveLength(2);
     expect(sources![0].fileId).toBe('f2');
     expect(sources![1].fileId).toBe('f1');
+  });
+
+  it('should filter out sources with score below 50%', () => {
+    collector.collect({
+      results: [
+        {
+          fileId: 'f1',
+          fileName: 'good.pdf',
+          chunkIndex: 0,
+          content: 'text',
+          score: 0.7,
+          metadata: {},
+        },
+        {
+          fileId: 'f2',
+          fileName: 'weak.pdf',
+          chunkIndex: 0,
+          content: 'text',
+          score: 0.3,
+          metadata: {},
+        },
+        {
+          fileId: 'f3',
+          fileName: 'borderline.pdf',
+          chunkIndex: 0,
+          content: 'text',
+          score: 0.5,
+          metadata: {},
+        },
+      ],
+      query: 'test',
+    });
+
+    const sources = collector.toStreamSources();
+    expect(sources).toHaveLength(2);
+    expect(sources!.map((s) => s.fileId)).toEqual(['f1', 'f3']);
   });
 
   it('should truncate long excerpts', () => {

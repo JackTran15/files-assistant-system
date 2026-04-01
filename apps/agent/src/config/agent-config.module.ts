@@ -7,7 +7,8 @@ import { WeaviateStorageAdapter } from '../adapters/weaviate-storage.adapter';
 import { WeaviateAdapter } from '../adapters/weaviate.adapter';
 import { GrpcResponseAdapter } from '../adapters/grpc-response.adapter';
 import { KafkaEventAdapter } from '../adapters/kafka-event.adapter';
-import { STORAGE_PORT, SEARCH_PORT } from '@files-assistant/core';
+import { STORAGE_PORT, SEARCH_PORT, EMBEDDING_PORT } from '@files-assistant/core';
+import { VoyageEmbeddingAdapter } from '../adapters/voyage-embedding.adapter';
 import { setSearchAdapter } from '../tools/search-files.tool';
 import { setWeaviateAdapter } from '../tools/read-file.tool';
 import { setAnthropicClient } from '../tools/extract-text.tool';
@@ -43,10 +44,15 @@ function createFilesAssistantAgent() {
     ]),
   ],
   providers: [
+    VoyageEmbeddingAdapter,
     WeaviateStorageAdapter,
     WeaviateAdapter,
     GrpcResponseAdapter,
     KafkaEventAdapter,
+    {
+      provide: EMBEDDING_PORT,
+      useExisting: VoyageEmbeddingAdapter,
+    },
     {
       provide: STORAGE_PORT,
       useExisting: WeaviateStorageAdapter,
@@ -61,10 +67,12 @@ function createFilesAssistantAgent() {
     },
   ],
   exports: [
+    VoyageEmbeddingAdapter,
     WeaviateStorageAdapter,
     WeaviateAdapter,
     GrpcResponseAdapter,
     KafkaEventAdapter,
+    EMBEDDING_PORT,
     STORAGE_PORT,
     SEARCH_PORT,
     'SUPERVISOR_AGENT',
