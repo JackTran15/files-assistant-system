@@ -5,6 +5,8 @@ import { WeaviateClient } from 'weaviate-client';
 import {
   EmbeddingPort,
   ChunkMetadata,
+  ParentChunkData,
+  ChildChunkData,
   EmbeddingResult,
   AgentProcessingError,
 } from '@files-assistant/core';
@@ -63,6 +65,59 @@ export class VoyageEmbeddingAdapter implements EmbeddingPort, OnModuleInit {
     };
   }
 
+  async embedAndStoreHierarchical(
+    parents: ParentChunkData[],
+    children: ChildChunkData[],
+    tenantId: string,
+  ): Promise<EmbeddingResult> {
+    const summaries = parents.map((p) => p.summary);
+    const embeddings = await this.embedWithRetry(summaries);
+
+    const collection = this.weaviateClient.collections.get(
+      FILE_CHUNKS_COLLECTION,
+    );
+
+    for (let i = 0; i < parents.length; i++) {
+      await collection.data.insert({
+        properties: {
+          content: parents[i].content,
+          fileId: parents[i].fileId,
+          fileName: parents[i].fileName,
+          chunkIndex: parents[i].chunkIndex,
+          tenantId,
+          startOffset: parents[i].startOffset,
+          endOffset: parents[i].endOffset,
+          chunkType: 'parent',
+          summary: parents[i].summary,
+          parentChunkIndex: -1,
+        },
+        vectors: embeddings[i],
+      });
+    }
+
+    for (const child of children) {
+      await collection.data.insert({
+        properties: {
+          content: child.content,
+          fileId: child.fileId,
+          fileName: child.fileName,
+          chunkIndex: child.chunkIndex,
+          tenantId,
+          startOffset: child.startOffset,
+          endOffset: child.endOffset,
+          chunkType: 'child',
+          summary: '',
+          parentChunkIndex: child.parentChunkIndex,
+        },
+      });
+    }
+
+    return {
+      vectorsStored: parents.length,
+      collectionName: FILE_CHUNKS_COLLECTION,
+    };
+  }
+
   async deleteByFileId(fileId: string, _tenantId: string): Promise<void> {
     const collection = this.weaviateClient.collections.get(
       FILE_CHUNKS_COLLECTION,
@@ -81,6 +136,21 @@ export class VoyageEmbeddingAdapter implements EmbeddingPort, OnModuleInit {
     inputs: string[],
     maxRetries = 3,
   ): Promise<number[][]> {
+    const hasEmpty = inputs.some((s) => !s.trim());
+    if (hasEmpty) {
+      this.logger.warn(
+        `Filtering ${inputs.filter((s) => !s.trim()).length} empty strings from ${inputs.length} embedding inputs`,
+      );
+      inputs = inputs.filter((s) => s.trim().length > 0);
+    }
+    if (inputs.length === 0) {
+      throw new AgentProcessingError(
+        'All embedding inputs were empty after filtering',
+        'embedding',
+        false,
+      );
+    }
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const response = await this.voyage.embed({

@@ -43,6 +43,14 @@ export class ChatController {
     );
   }
 
+  @Post('cancel/:correlationId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Cancel an active chat stream' })
+  @ApiResponse({ status: 204, description: 'Stream cancelled' })
+  async cancelStream(@Param('correlationId') correlationId: string) {
+    await this.chatService.cancelStream(correlationId);
+  }
+
   @Get('history')
   @ApiOperation({ summary: 'Conversation history (paginated)' })
   async getHistory(

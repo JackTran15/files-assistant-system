@@ -7,9 +7,6 @@ export const ingestionAgentConfig = {
   description:
     'Process uploaded files: extract text, chunk, embed, store vectors',
   model: 'ingestion' as const,
-  instructions: `You process uploaded files through the ingestion pipeline.
-    Extract text based on file type. Chunk using recursive splitting.
-    Generate embeddings and store in Weaviate.
-    Report the number of chunks and vectors created.`,
+  instructions: `Process uploaded files: extract text by type, chunk recursively, embed and store in Weaviate. Report chunk/vector counts.`,
   tools: [extractTextTool, chunkTextTool, embedAndStoreTool],
 };

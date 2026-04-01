@@ -6,6 +6,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ClientGrpc } from '@nestjs/microservices';
+import { Subject, Observable, lastValueFrom } from 'rxjs';
 
 export interface StreamChunkOptions {
   sources?: Array<{
@@ -23,12 +24,29 @@ export interface ChatResponseStream {
   cancel(): void;
 }
 
+interface ChatResponseChunk {
+  correlationId: string;
+  conversationId: string;
+  content: string;
+  done: boolean;
+  sources: Array<{
+    fileId: string;
+    fileName: string;
+    chunkIndex: number;
+    score: number;
+  }>;
+  confidenceScore?: number;
+  revision?: number;
+}
+
+interface StreamResponseAck {
+  received: boolean;
+}
+
 interface ChatStreamService {
-  StreamChatResponse(): {
-    write(data: Record<string, unknown>): void;
-    end(): void;
-    cancel(): void;
-  };
+  streamChatResponse(
+    data: Observable<ChatResponseChunk>,
+  ): Observable<StreamResponseAck>;
 }
 
 @Injectable()
@@ -44,6 +62,7 @@ export class GrpcResponseAdapter implements OnModuleInit {
     if (this.client) {
       this.chatStreamService =
         this.client.getService<ChatStreamService>('ChatStream');
+      this.logger.log('gRPC ChatStream service initialized');
     } else {
       this.logger.warn(
         'gRPC client not available; chat streaming will use fallback logging',
@@ -59,14 +78,24 @@ export class GrpcResponseAdapter implements OnModuleInit {
       return this.createFallbackStream(correlationId, conversationId);
     }
 
-    const grpcStream = this.chatStreamService.StreamChatResponse();
+    const subject = new Subject<ChatResponseChunk>();
+
+    const response$ =
+      this.chatStreamService.streamChatResponse(subject.asObservable());
+
+    lastValueFrom(response$).catch((err) => {
+      this.logger.error(
+        `gRPC stream error for ${correlationId}: ${err instanceof Error ? err.message : err}`,
+      );
+    });
+
     return {
       sendChunk: (
         content: string,
         done: boolean,
         options?: StreamChunkOptions,
       ) => {
-        grpcStream.write({
+        subject.next({
           correlationId,
           conversationId,
           content,
@@ -75,9 +104,13 @@ export class GrpcResponseAdapter implements OnModuleInit {
           confidenceScore: options?.confidenceScore,
           revision: options?.revision,
         });
-        if (done) grpcStream.end();
+        if (done) {
+          subject.complete();
+        }
       },
-      cancel: () => grpcStream.cancel(),
+      cancel: () => {
+        subject.complete();
+      },
     };
   }
 

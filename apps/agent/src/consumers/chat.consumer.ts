@@ -1,23 +1,8 @@
 import { Controller, Inject, Logger } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { TOPICS, ChatRequestEvent } from '@files-assistant/events';
-import {
-  GrpcResponseAdapter,
-  StreamChunkOptions,
-} from '../adapters/grpc-response.adapter';
-
-interface SupervisorStreamResult {
-  textStream: AsyncIterable<string>;
-  sources?: Array<{
-    fileId: string;
-    fileName: string;
-    chunkIndex: number;
-    score: number;
-    excerpt?: string;
-  }>;
-  confidenceScore?: number;
-  revision?: number;
-}
+import { GrpcResponseAdapter } from '../adapters/grpc-response.adapter';
+import type { Agent } from '@voltagent/core';
 
 @Controller()
 export class ChatConsumer {
@@ -26,10 +11,18 @@ export class ChatConsumer {
   constructor(
     private readonly grpcResponseAdapter: GrpcResponseAdapter,
     @Inject('SUPERVISOR_AGENT')
-    private readonly supervisorAgent: {
-      streamText: (opts: { input: string }) => Promise<SupervisorStreamResult>;
-    },
+    private readonly supervisorAgent: Agent,
   ) {}
+
+  private buildEnrichedPrompt(event: ChatRequestEvent): string {
+    const contextLines = [`[Context] tenantId: ${event.tenantId}`];
+    if (event.fileIds?.length) {
+      contextLines.push(
+        `[Context] selectedFileIds: ${event.fileIds.join(', ')}`,
+      );
+    }
+    return [...contextLines, `[User] ${event.message}`].join('\n');
+  }
 
   @EventPattern(TOPICS.CHAT_REQUEST)
   async handleChatRequest(@Payload() event: ChatRequestEvent): Promise<void> {
@@ -43,33 +36,18 @@ export class ChatConsumer {
     );
 
     try {
-      const agentResult = await this.supervisorAgent.streamText({
-        input: event.message,
-      });
+      const enrichedPrompt = this.buildEnrichedPrompt(event);
+      const agentResult = await this.supervisorAgent.streamText(
+        enrichedPrompt,
+      );
 
       for await (const chunk of agentResult.textStream) {
         stream.sendChunk(chunk, false);
       }
 
-      const finalOptions: StreamChunkOptions = {};
-      if (agentResult.sources?.length) {
-        finalOptions.sources = agentResult.sources;
-      }
-      if (agentResult.confidenceScore !== undefined) {
-        finalOptions.confidenceScore = agentResult.confidenceScore;
-      }
-      if (agentResult.revision !== undefined) {
-        finalOptions.revision = agentResult.revision;
-      }
+      stream.sendChunk('', true);
 
-      stream.sendChunk('', true, finalOptions);
-
-      this.logger.log(
-        `Chat request ${event.correlationId} processed` +
-          (finalOptions.confidenceScore !== undefined
-            ? ` (confidence: ${finalOptions.confidenceScore})`
-            : ''),
-      );
+      this.logger.log(`Chat request ${event.correlationId} processed`);
     } catch (error) {
       stream.sendChunk(
         `[Error: ${error instanceof Error ? error.message : String(error)}]`,

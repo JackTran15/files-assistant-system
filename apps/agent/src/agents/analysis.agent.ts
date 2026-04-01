@@ -5,8 +5,6 @@ export const analysisAgentConfig = {
   name: 'AnalysisAgent',
   description: 'Deep analysis and comparison of file contents',
   model: 'analysis' as const,
-  instructions: `You analyze file contents in detail. You can retrieve full
-    file content and compare multiple files. Provide thorough analysis
-    with specific references to the content.`,
+  instructions: `Analyze file contents in detail. Retrieve full content or compare multiple files. Provide thorough analysis with specific content references.`,
   tools: [getFileContentTool, compareFilesTool],
 };

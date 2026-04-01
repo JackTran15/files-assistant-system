@@ -8,7 +8,10 @@ import { MessageEntity } from './entities/message.entity';
 import { ChatMessageDto } from './dto/chat-message.dto';
 import { ChatRole } from '@files-assistant/core';
 import { KafkaProducerService } from '../kafka/kafka.producer';
-import { createChatRequestEvent, ChatResponseEvent } from '@files-assistant/events';
+import {
+  createChatRequestEvent,
+  ChatResponseEvent,
+} from '@files-assistant/events';
 
 @Injectable()
 export class ChatService {
@@ -16,6 +19,7 @@ export class ChatService {
   private responseStreams = new Map<string, Subject<ChatResponseEvent>>();
   private chunkAccumulator = new Map<string, string[]>();
   private streamTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  private correlationConversationMap = new Map<string, string>();
 
   constructor(
     @InjectRepository(ConversationEntity)
@@ -25,7 +29,9 @@ export class ChatService {
     private readonly kafkaProducer: KafkaProducerService,
   ) {}
 
-  async sendMessage(dto: ChatMessageDto): Promise<{ correlationId: string; conversationId: string }> {
+  async sendMessage(
+    dto: ChatMessageDto,
+  ): Promise<{ correlationId: string; conversationId: string }> {
     let conversationId = dto.conversationId;
 
     if (!conversationId) {
@@ -55,11 +61,13 @@ export class ChatService {
         conversationId,
         tenantId: dto.tenantId,
         message: dto.message,
+        ...(dto.fileIds?.length ? { fileIds: dto.fileIds } : {}),
       }),
     );
 
     this.responseStreams.set(correlationId, new Subject<ChatResponseEvent>());
     this.chunkAccumulator.set(correlationId, []);
+    this.correlationConversationMap.set(correlationId, conversationId);
 
     const timeoutHandle = setTimeout(() => {
       this.logger.warn(`Stream timeout for correlationId=${correlationId}`);
@@ -70,7 +78,9 @@ export class ChatService {
     return { correlationId, conversationId };
   }
 
-  getResponseStream(correlationId: string): Observable<ChatResponseEvent> | undefined {
+  getResponseStream(
+    correlationId: string,
+  ): Observable<ChatResponseEvent> | undefined {
     return this.responseStreams.get(correlationId)?.asObservable();
   }
 
@@ -95,7 +105,8 @@ export class ChatService {
             conversationId: event.conversationId,
             role: ChatRole.ASSISTANT,
             content: fullContent,
-            sources: (event.sources as unknown as Record<string, unknown>[]) ?? null,
+            sources:
+              (event.sources as unknown as Record<string, unknown>[]) ?? null,
             confidenceScore: event.confidenceScore ?? null,
           }),
         );
@@ -108,6 +119,46 @@ export class ChatService {
 
       this.cleanupStream(event.correlationId);
     }
+  }
+
+  async cancelStream(correlationId: string): Promise<void> {
+    const stream = this.responseStreams.get(correlationId);
+    if (!stream) return;
+
+    const chunks = this.chunkAccumulator.get(correlationId) ?? [];
+    const partialContent = chunks.join('');
+
+    stream.next({
+      correlationId,
+      conversationId: '',
+      chunk: '',
+      done: true,
+      cancelled: true,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (partialContent.length > 0) {
+      const conversationId = this.correlationConversationMap.get(correlationId);
+      if (conversationId) {
+        try {
+          await this.messageRepo.save(
+            this.messageRepo.create({
+              conversationId,
+              role: ChatRole.ASSISTANT,
+              content: partialContent,
+            }),
+          );
+        } catch (err) {
+          this.logger.error(
+            `Failed to persist partial message on cancel for correlationId=${correlationId}`,
+            err instanceof Error ? err.stack : err,
+          );
+        }
+      }
+    }
+
+    this.cleanupStream(correlationId);
+    this.logger.log(`Stream cancelled: correlationId=${correlationId}`);
   }
 
   cleanupStream(correlationId: string): void {
@@ -124,6 +175,7 @@ export class ChatService {
     }
 
     this.chunkAccumulator.delete(correlationId);
+    this.correlationConversationMap.delete(correlationId);
   }
 
   async getHistory(tenantId: string, page = 1, limit = 20) {

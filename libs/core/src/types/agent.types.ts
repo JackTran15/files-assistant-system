@@ -4,6 +4,7 @@ export interface SearchResult {
   chunkIndex: number;
   content: string;
   score: number;
+  summary?: string;
   metadata: Record<string, unknown>;
 }
 

@@ -34,6 +34,12 @@ export class FileEntity {
   @OneToMany(() => ChunkEntity, (chunk) => chunk.file)
   chunks: ChunkEntity[];
 
+  @Column({ type: 'text', nullable: true })
+  parsedText?: string;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  extractionMethod?: string;
+
   @Column({ nullable: true })
   errorMessage?: string;
 

@@ -14,7 +14,18 @@ export interface FileStatusEvent {
   fileId: string;
   status: string;
   error?: string;
+  timestamp?: string;
 }
+
+const VALID_TRANSITIONS: Record<FileStatus, FileStatus[]> = {
+  [FileStatus.PENDING]: [FileStatus.PROCESSING],
+  [FileStatus.PROCESSING]: [FileStatus.EXTRACTING, FileStatus.FAILED],
+  [FileStatus.EXTRACTING]: [FileStatus.EXTRACTED, FileStatus.FAILED],
+  [FileStatus.EXTRACTED]: [FileStatus.EMBEDDING, FileStatus.READY, FileStatus.FAILED],
+  [FileStatus.EMBEDDING]: [FileStatus.READY, FileStatus.FAILED],
+  [FileStatus.READY]: [],
+  [FileStatus.FAILED]: [FileStatus.PROCESSING],
+};
 
 @Injectable()
 export class FilesService {
@@ -77,6 +88,16 @@ export class FilesService {
     status: FileStatus,
     extra?: { chunkCount?: number; errorMessage?: string; errorStage?: string },
   ): Promise<void> {
+    const file = await this.fileRepo.findOne({ where: { id: fileId }, select: ['id', 'status'] });
+    if (file) {
+      const allowed = VALID_TRANSITIONS[file.status] ?? [];
+      if (!allowed.includes(status)) {
+        this.logger.warn(
+          `Invalid status transition for file ${fileId}: ${file.status} → ${status}`,
+        );
+      }
+    }
+
     const updatePayload: Record<string, unknown> = { status };
 
     if (extra?.chunkCount !== undefined) updatePayload.chunkCount = extra.chunkCount;
@@ -85,13 +106,33 @@ export class FilesService {
 
     await this.fileRepo.update(fileId, updatePayload);
 
+    this.emitStatusEvent(fileId, status, extra?.errorMessage);
+  }
+
+  async saveExtractedText(fileId: string, data: {
+    parsedText: string;
+    extractionMethod: 'haiku' | 'raw';
+    characterCount: number;
+    pageCount?: number;
+  }): Promise<void> {
+    const result = await this.fileRepo.update(fileId, {
+      parsedText: data.parsedText,
+      extractionMethod: data.extractionMethod,
+      status: FileStatus.EXTRACTED,
+    });
+
+    if (result.affected === 0) {
+      this.logger.warn(`saveExtractedText: file ${fileId} not found, skipping`);
+      return;
+    }
+
+    this.emitStatusEvent(fileId, FileStatus.EXTRACTED);
+  }
+
+  private emitStatusEvent(fileId: string, status: FileStatus, error?: string): void {
     const subject = this.fileStatusStreams.get(fileId);
     if (subject) {
-      subject.next({
-        fileId,
-        status,
-        error: extra?.errorMessage,
-      });
+      subject.next({ fileId, status, error, timestamp: new Date().toISOString() });
 
       if (status === FileStatus.READY || status === FileStatus.FAILED) {
         subject.complete();
@@ -140,7 +181,9 @@ export class FilesService {
 
   private resolveFileType(mimeType: string): FileType {
     if (mimeType === 'application/pdf') return FileType.PDF;
-    if (mimeType.includes('wordprocessingml')) return FileType.DOCX;
+    if (mimeType === 'application/json') return FileType.JSON;
+    if (mimeType === 'text/markdown' || mimeType === 'text/x-markdown')
+      return FileType.MARKDOWN;
     return FileType.TXT;
   }
 }

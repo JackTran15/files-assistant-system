@@ -31,7 +31,7 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
   const port = configService.get<number>('BACKEND_PORT', 3000);
-  const grpcPort = configService.get<number>('GRPC_PORT', 5000);
+  const grpcPort = configService.get<number>('GRPC_PORT', 5050);
 
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,

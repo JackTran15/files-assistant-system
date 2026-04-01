@@ -6,12 +6,14 @@ export interface SearchPort {
     tenantId: string,
     limit?: number,
     alpha?: number,
+    fileIds?: string[],
   ): Promise<SearchResult[]>;
 
   keywordSearch(
     query: string,
     tenantId: string,
     limit?: number,
+    fileIds?: string[],
   ): Promise<SearchResult[]>;
 }
 

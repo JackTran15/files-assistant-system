@@ -5,9 +5,6 @@ export const searchAgentConfig = {
   name: 'SearchAgent',
   description: 'Semantic and keyword search over uploaded files',
   model: 'search' as const,
-  instructions: `You search the user's uploaded documents using hybrid search.
-    Use hybridSearch for natural language queries.
-    Use keywordSearch when the user asks for exact filenames or terms.
-    Always include relevant context from search results in your response.`,
+  instructions: `Search user documents. Use hybridSearch for natural language queries, keywordSearch for exact filenames/terms. Include relevant context from results.`,
   tools: [hybridSearchTool, keywordSearchTool],
 };

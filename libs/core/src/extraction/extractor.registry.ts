@@ -1,6 +1,5 @@
 import { TextExtractor } from './extractor.interface';
 import { PdfExtractor } from './pdf.extractor';
-import { DocxExtractor } from './docx.extractor';
 import { PlainTextExtractor } from './plaintext.extractor';
 
 export class ExtractorRegistry {
@@ -9,7 +8,6 @@ export class ExtractorRegistry {
   constructor() {
     this.extractors = [
       new PdfExtractor(),
-      new DocxExtractor(),
       new PlainTextExtractor(),
     ];
   }

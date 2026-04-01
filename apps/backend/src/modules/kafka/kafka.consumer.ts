@@ -27,7 +27,7 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     await this.consumer.connect();
     await this.consumer.subscribe({
-      topics: [TOPICS.FILE_READY, TOPICS.FILE_FAILED],
+      topics: [TOPICS.FILE_READY, TOPICS.FILE_FAILED, TOPICS.FILE_EXTRACTED],
       fromBeginning: false,
     });
     await this.consumer.run({
@@ -55,6 +55,14 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
         await this.filesService.updateStatus(value.fileId, FileStatus.FAILED, {
           errorMessage: value.error,
           errorStage: value.stage,
+        });
+        break;
+      case TOPICS.FILE_EXTRACTED:
+        await this.filesService.saveExtractedText(value.fileId, {
+          parsedText: value.parsedText,
+          extractionMethod: value.extractionMethod,
+          characterCount: value.characterCount,
+          pageCount: value.pageCount,
         });
         break;
       default:

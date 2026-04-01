@@ -1,4 +1,5 @@
 import 'multer';
+import { extname } from 'path';
 import {
   Controller,
   Get,
@@ -30,6 +31,16 @@ import { UploadFileDto } from './dto/upload-file.dto';
 import { SearchFilesDto } from './dto/search-files.dto';
 import { FileResponseDto, PaginatedFilesResponseDto } from './dto/file-response.dto';
 
+const ALLOWED_MIME_TYPES = new Set([
+  'application/pdf',
+  'text/plain',
+  'text/markdown',
+  'text/x-markdown',
+  'application/json',
+]);
+
+const ALLOWED_EXTENSIONS = new Set(['.pdf', '.txt', '.md', '.json']);
+
 @ApiTags('Files')
 @Controller('api/files')
 export class FilesController {
@@ -39,26 +50,35 @@ export class FilesController {
   @HttpCode(HttpStatus.ACCEPTED)
   @UseInterceptors(FileInterceptor('file', {
     fileFilter: (_req, file, cb) => {
-      if (file.mimetype.startsWith('video/')) {
-        cb(new BadRequestException('Video files are not allowed'), false);
-      } else {
+      const ext = extname(file.originalname).toLowerCase();
+      if (ALLOWED_MIME_TYPES.has(file.mimetype) || ALLOWED_EXTENSIONS.has(ext)) {
         cb(null, true);
+      } else {
+        cb(
+          new BadRequestException(
+            'Unsupported file type. Allowed: PDF, TXT, MD, JSON',
+          ),
+          false,
+        );
       }
     },
     limits: { fileSize: 50 * 1024 * 1024 },
   }))
-  @ApiOperation({ summary: 'Upload a file for processing' })
+  @ApiOperation({ summary: 'Upload a file for processing (PDF, TXT, MD, JSON)' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
+    description: 'Accepted file types: .pdf, .txt, .md, .json (max 50 MB)',
     schema: {
       type: 'object',
       properties: {
-        file: { type: 'string', format: 'binary' },
+        file: { type: 'string', format: 'binary', description: 'PDF, TXT, MD, or JSON file' },
         tenantId: { type: 'string' },
       },
     },
   })
-  @ApiResponse({ status: 202, type: FileResponseDto })
+  @ApiResponse({ status: 202, type: FileResponseDto, description: 'File accepted for processing' })
+  @ApiResponse({ status: 400, description: 'Unsupported file type. Allowed: PDF, TXT, MD, JSON' })
+  @ApiResponse({ status: 413, description: 'File exceeds 50 MB size limit' })
   async upload(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: UploadFileDto,

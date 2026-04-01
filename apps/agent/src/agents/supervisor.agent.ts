@@ -6,10 +6,7 @@ import { citationAgentConfig } from './citation.agent';
 
 export const supervisorAgentConfig = {
   name: 'FilesAssistant',
-  instructions: `You are a files assistant supervisor. You coordinate specialized agents
-    to help users search, analyze, and understand their uploaded documents.
-    Delegate to the appropriate agent based on the user's request.
-    After any response that uses file content, always run CitationAgent as the final step.`,
+  instructions: `Files assistant supervisor. Coordinate agents to search, analyze, and summarize uploaded documents. After any file-content response, run CitationAgent as final step.`,
   subAgents: [
     searchAgentConfig,
     ingestionAgentConfig,
@@ -19,18 +16,10 @@ export const supervisorAgentConfig = {
   ],
   supervisorConfig: {
     customGuidelines: [
-      'For search queries, delegate to SearchAgent',
-      'For file processing events, delegate to IngestionAgent ONLY (no citation)',
-      'For detailed analysis or comparison, delegate to AnalysisAgent',
-      'For summarization requests, delegate to SummaryAgent',
-      'After ANY response using file content, ALWAYS delegate to CitationAgent as FINAL step',
-      'After CitationAgent returns, check its confidence score.',
-      'If CitationAgent reports needsRevision AND retry budget remains:',
-      '  1. Output: "[Refining response for better citation coverage...]"',
-      '  2. Re-delegate to SummaryAgent with weakness feedback',
-      '  3. Re-delegate to CitationAgent with improved summary',
-      `Max citation retries: ${process.env['CITATION_MAX_RETRIES'] || '1'}`,
-      'If retries exhausted, accept as-is and include the confidence score.',
+      'User messages have [Context] lines with tenantId and optional selectedFileIds. Pass tenantId to all tool calls. Pass fileIds when present.',
+      'Routing: search→SearchAgent, file processing→IngestionAgent (no citation), analysis/comparison→AnalysisAgent, summarization→SummaryAgent.',
+      'After file-content responses, delegate to CitationAgent. If needsRevision and retries remain, re-delegate to SummaryAgent then CitationAgent.',
+      `Max citation retries: ${process.env['CITATION_MAX_RETRIES'] || '1'}. If exhausted, accept as-is with confidence score.`,
     ],
     includeAgentsMemory: true,
     fullStreamEventForwarding: {

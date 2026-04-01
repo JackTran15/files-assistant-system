@@ -11,7 +11,6 @@ export * from './ports/embedding.port';
 // Extraction
 export * from './extraction/extractor.interface';
 export * from './extraction/pdf.extractor';
-export * from './extraction/docx.extractor';
 export * from './extraction/plaintext.extractor';
 export * from './extraction/extractor.registry';
 

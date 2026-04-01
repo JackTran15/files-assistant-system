@@ -1,0 +1,32 @@
+{
+  "name": "Test Document",
+  "version": "1.0.0",
+  "description": "A JSON fixture for the ingestion pipeline e2e tests",
+  "metadata": {
+    "author": "E2E Test Suite",
+    "createdAt": "2025-01-01T00:00:00.000Z",
+    "tags": ["test", "fixture", "ingestion"]
+  },
+  "sections": [
+    {
+      "id": 1,
+      "title": "Introduction",
+      "content": "This JSON file is used to verify that JSON files are properly handled by the raw extraction path."
+    },
+    {
+      "id": 2,
+      "title": "Details",
+      "content": "The ingestion pipeline should read this file as-is and store the full JSON string as parsedText."
+    },
+    {
+      "id": 3,
+      "title": "Conclusion",
+      "content": "After processing, the parsedText field should contain valid JSON that matches this file."
+    }
+  ],
+  "settings": {
+    "chunkSize": 512,
+    "overlap": 50,
+    "enabled": true
+  }
+}

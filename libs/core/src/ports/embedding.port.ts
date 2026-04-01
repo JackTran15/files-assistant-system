@@ -1,10 +1,16 @@
-import { ChunkMetadata } from '../types/file.types';
+import { ChunkMetadata, ParentChunkData, ChildChunkData } from '../types/file.types';
 import { EmbeddingResult } from '../types/agent.types';
 
 export interface EmbeddingPort {
   embedAndStore(
     chunks: string[],
     metadata: ChunkMetadata[],
+    tenantId: string,
+  ): Promise<EmbeddingResult>;
+
+  embedAndStoreHierarchical(
+    parents: ParentChunkData[],
+    children: ChildChunkData[],
     tenantId: string,
   ): Promise<EmbeddingResult>;
 

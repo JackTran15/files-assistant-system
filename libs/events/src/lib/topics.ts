@@ -2,6 +2,7 @@ export const TOPICS = {
   FILE_UPLOADED: 'file.uploaded',
   FILE_READY: 'file.ready',
   FILE_FAILED: 'file.failed',
+  FILE_EXTRACTED: 'file.extracted',
   CHAT_REQUEST: 'chat.request',
 } as const;
 
@@ -16,5 +17,6 @@ export const CONSUMER_GROUPS = {
 
 export const DLQ_TOPICS = {
   FILE_UPLOADED: 'dlq.file.uploaded',
+  FILE_EXTRACTED: 'dlq.file.extracted',
   CHAT_REQUEST: 'dlq.chat.request',
 } as const;

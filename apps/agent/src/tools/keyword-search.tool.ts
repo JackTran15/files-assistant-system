@@ -3,19 +3,41 @@ import { z } from 'zod';
 import type { SearchPort } from '@files-assistant/core';
 import { AgentProcessingError } from '@files-assistant/core';
 
+const MAX_CHUNK_CHARS = parseInt(
+  process.env['MAX_SEARCH_CHUNK_CHARS'] || '1200',
+  10,
+);
+
 let searchAdapter: SearchPort | null = null;
 
 export function setSearchAdapter(adapter: SearchPort): void {
   searchAdapter = adapter;
 }
 
+function truncateResults(
+  results: Awaited<ReturnType<SearchPort['keywordSearch']>>,
+) {
+  return results.map((r) => ({
+    ...r,
+    content:
+      r.content.length > MAX_CHUNK_CHARS
+        ? r.content.slice(0, MAX_CHUNK_CHARS) + '…'
+        : r.content,
+    summary: r.summary,
+  }));
+}
+
 export const keywordSearchTool = createTool({
   name: 'keywordSearch',
-  description: 'Search documents by exact keywords or filenames using BM25',
+  description: 'Search documents by exact keywords or filenames using BM25. Returns parent-level summaries and content.',
   parameters: z.object({
     query: z.string().describe('Exact keyword or filename to search'),
     tenantId: z.string().describe('Tenant identifier'),
-    limit: z.number().min(1).max(50).default(10).describe('Max results'),
+    limit: z.number().min(1).max(20).default(5).describe('Max results'),
+    fileIds: z
+      .array(z.string())
+      .optional()
+      .describe('Scope results to these file IDs only'),
   }),
   execute: async (input) => {
     if (!searchAdapter) {
@@ -31,8 +53,9 @@ export const keywordSearchTool = createTool({
         input.query,
         input.tenantId,
         input.limit,
+        input.fileIds,
       );
-      return { results, query: input.query };
+      return { results: truncateResults(results), query: input.query };
     } catch (error) {
       if (error instanceof AgentProcessingError) throw error;
       throw new AgentProcessingError(

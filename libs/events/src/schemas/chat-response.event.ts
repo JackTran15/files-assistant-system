@@ -3,6 +3,7 @@ export interface ChatResponseEvent {
   conversationId: string;
   chunk: string;
   done: boolean;
+  cancelled?: boolean;
   sources?: ChatResponseSource[];
   confidenceScore?: number;
   revision?: number;

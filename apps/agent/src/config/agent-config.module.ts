@@ -13,16 +13,19 @@ import { setEmbeddingAdapter } from '../tools/embed-and-store.tool';
 import { setSearchAdapter as setHybridSearchAdapter } from '../tools/hybrid-search.tool';
 import { setSearchAdapter as setKeywordSearchAdapter } from '../tools/keyword-search.tool';
 import { setSearchAdapter as setGetFileContentAdapter } from '../tools/get-file-content.tool';
+import { setAnthropicClient } from '../tools/extract-text.tool';
+import { setIngestionAnthropicClient } from '../consumers/ingestion.consumer';
 import { supervisorAgentConfig } from '../agents/supervisor.agent';
+import Anthropic from '@anthropic-ai/sdk';
 
 const MODEL_ENV_MAP: Record<string, { env: string; fallback: string }> = {
   search: {
     env: 'ANTHROPIC_SEARCH_MODEL',
-    fallback: 'claude-3-5-sonnet-20241022',
+    fallback: 'claude-haiku-4-5-20251001',
   },
   ingestion: {
     env: 'ANTHROPIC_INGESTION_MODEL',
-    fallback: 'claude-3-5-sonnet-20241022',
+    fallback: 'claude-haiku-4-5-20251001',
   },
   analysis: {
     env: 'ANTHROPIC_ANALYSIS_MODEL',
@@ -34,7 +37,7 @@ const MODEL_ENV_MAP: Record<string, { env: string; fallback: string }> = {
   },
   citation: {
     env: 'ANTHROPIC_CITATION_MODEL',
-    fallback: 'claude-3-5-sonnet-20241022',
+    fallback: 'claude-haiku-4-5-20251001',
   },
 };
 
@@ -42,7 +45,7 @@ function resolveModel(label: string) {
   const entry = MODEL_ENV_MAP[label];
   const modelId = entry
     ? process.env[entry.env] || entry.fallback
-    : 'claude-3-5-sonnet-20241022';
+    : 'claude-sonnet-4-20250514';
   return anthropic(modelId);
 }
 
@@ -61,7 +64,7 @@ function createSupervisorAgent() {
     name: supervisorAgentConfig.name,
     instructions: supervisorAgentConfig.instructions,
     model: anthropic(
-      process.env['ANTHROPIC_SUPERVISOR_MODEL'] || 'claude-sonnet-4-20250514',
+      process.env['ANTHROPIC_SUPERVISOR_MODEL'] || 'claude-haiku-4-5-20251001',
     ),
     subAgents,
     supervisorConfig: {
@@ -128,5 +131,8 @@ export class AgentConfigModule implements OnModuleInit {
     setHybridSearchAdapter(this.weaviateAdapter);
     setKeywordSearchAdapter(this.weaviateAdapter);
     setGetFileContentAdapter(this.weaviateAdapter);
+    const client = new Anthropic();
+    setAnthropicClient(client);
+    setIngestionAnthropicClient(client);
   }
 }

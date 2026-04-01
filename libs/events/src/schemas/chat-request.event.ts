@@ -3,6 +3,7 @@ export interface ChatRequestEvent {
   conversationId: string;
   tenantId: string;
   message: string;
+  fileIds?: string[];
   timestamp: string;
 }
 

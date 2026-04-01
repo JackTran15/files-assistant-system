@@ -1,0 +1,13 @@
+process.env['DATABASE_HOST'] = 'localhost';
+process.env['DATABASE_PORT'] = '5434';
+process.env['DATABASE_NAME'] = 'files_assistant_test';
+process.env['DATABASE_USER'] = 'postgres';
+process.env['DATABASE_PASSWORD'] = 'postgres';
+process.env['REDPANDA_BROKER'] = 'localhost:19092';
+process.env['NODE_ENV'] = 'test';
+process.env['STORAGE_LOCAL_PATH'] = './uploads-e2e';
+process.env['VOYAGE_API_KEY'] = 'test-voyage-key';
+process.env['ANTHROPIC_API_KEY'] = 'test-anthropic-key';
+process.env['WEAVIATE_HOST'] = 'localhost';
+process.env['WEAVIATE_HTTP_PORT'] = '8080';
+process.env['WEAVIATE_GRPC_PORT'] = '50051';

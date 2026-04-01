@@ -23,6 +23,12 @@ export class FileResponseDto {
   @ApiProperty()
   chunkCount: number;
 
+  @ApiProperty({ required: false, nullable: true })
+  parsedText?: string;
+
+  @ApiProperty({ required: false, nullable: true })
+  extractionMethod?: string;
+
   @ApiProperty()
   createdAt: Date;
 

@@ -5,6 +5,7 @@ import {
   TOPICS,
   createFileReadyEvent,
   createFileFailedEvent,
+  createFileExtractedEvent,
 } from '@files-assistant/events';
 
 @Injectable()
@@ -36,6 +37,20 @@ export class KafkaEventAdapter implements OnModuleInit, OnModuleDestroy {
     const event = createFileReadyEvent(params);
     await this.producer.send({
       topic: TOPICS.FILE_READY,
+      messages: [{ key: params.fileId, value: JSON.stringify(event) }],
+    });
+  }
+
+  async publishFileExtracted(params: {
+    fileId: string;
+    tenantId: string;
+    parsedText: string;
+    extractionMethod: 'haiku' | 'raw';
+    characterCount: number;
+  }): Promise<void> {
+    const event = createFileExtractedEvent(params);
+    await this.producer.send({
+      topic: TOPICS.FILE_EXTRACTED,
       messages: [{ key: params.fileId, value: JSON.stringify(event) }],
     });
   }

@@ -1,14 +1,18 @@
 export enum FileStatus {
   PENDING = 'pending',
   PROCESSING = 'processing',
+  EXTRACTING = 'extracting',
+  EXTRACTED = 'extracted',
+  EMBEDDING = 'embedding',
   READY = 'ready',
   FAILED = 'failed',
 }
 
 export enum FileType {
   PDF = 'pdf',
-  DOCX = 'docx',
   TXT = 'txt',
+  JSON = 'json',
+  MARKDOWN = 'markdown',
 }
 
 export interface FileMetadata {
@@ -21,6 +25,8 @@ export interface FileMetadata {
   storagePath: string;
   tenantId: string;
   chunkCount?: number;
+  parsedText?: string;
+  extractionMethod?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -40,4 +46,24 @@ export interface ChunkMetadata {
   startOffset: number;
   endOffset: number;
   tokenCount?: number;
+}
+
+export interface ParentChunkData {
+  content: string;
+  summary: string;
+  chunkIndex: number;
+  startOffset: number;
+  endOffset: number;
+  fileId: string;
+  fileName: string;
+}
+
+export interface ChildChunkData {
+  content: string;
+  chunkIndex: number;
+  parentChunkIndex: number;
+  startOffset: number;
+  endOffset: number;
+  fileId: string;
+  fileName: string;
 }
