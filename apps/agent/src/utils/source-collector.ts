@@ -53,6 +53,7 @@ export class SourceCollector {
       score: number;
       excerpt?: string;
       pageNumber?: number;
+      content?: string;
     }> = [];
 
     for (const r of this.results) {
@@ -81,6 +82,7 @@ export class SourceCollector {
           typeof r.metadata?.pageNumber === 'number'
             ? r.metadata.pageNumber
             : undefined,
+        content: r.content || undefined,
       };
 
       deduped.push(entry);

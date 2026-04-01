@@ -109,6 +109,15 @@ export class FilesController {
     return this.filesService.remove(id);
   }
 
+  @Post(':id/retry')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({ summary: 'Retry file embedding from scratch' })
+  @ApiParam({ name: 'id', type: 'string' })
+  @ApiResponse({ status: 202, type: FileResponseDto })
+  async retry(@Param('id', ParseUUIDPipe) id: string) {
+    return this.filesService.retry(id);
+  }
+
   @Sse(':id/events')
   @ApiOperation({ summary: 'SSE: processing status updates' })
   @ApiParam({ name: 'id', type: 'string' })

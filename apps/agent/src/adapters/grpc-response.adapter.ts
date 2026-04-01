@@ -16,6 +16,7 @@ export interface StreamChunkOptions {
     score: number;
     excerpt?: string;
     pageNumber?: number;
+    content?: string;
   }>;
   confidenceScore?: number;
   revision?: number;
@@ -38,6 +39,7 @@ interface ChatResponseChunk {
     score: number;
     excerpt?: string;
     pageNumber?: number;
+    content?: string;
   }>;
   confidenceScore?: number;
   revision?: number;

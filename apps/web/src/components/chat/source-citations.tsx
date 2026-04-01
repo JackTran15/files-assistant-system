@@ -98,7 +98,7 @@ export function SourceCitations({
               >
                 <FileText className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
-                  <p className="text-xs font-medium truncate">
+                  <p className="text-xs font-medium break-words">
                     [{i + 1}] {source.fileName}
                     {source.pageNumber != null && (
                       <span className="text-muted-foreground">
@@ -108,7 +108,7 @@ export function SourceCitations({
                     )}
                   </p>
                   {source.excerpt && (
-                    <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2 italic">
+                    <p className="mt-0.5 text-xs text-muted-foreground italic whitespace-pre-wrap break-words">
                       &ldquo;{source.excerpt}&rdquo;
                     </p>
                   )}

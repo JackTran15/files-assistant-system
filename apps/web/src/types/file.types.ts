@@ -1,6 +1,9 @@
 export enum FileStatus {
   PENDING = 'pending',
   PROCESSING = 'processing',
+  EXTRACTING = 'extracting',
+  EXTRACTED = 'extracted',
+  EMBEDDING = 'embedding',
   READY = 'ready',
   FAILED = 'failed',
 }

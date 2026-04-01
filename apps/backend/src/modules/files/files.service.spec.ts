@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Logger } from '@nestjs/common';
 import { FilesService, FileStatusEvent } from './files.service';
 import { FileEntity } from './entities/file.entity';
 import { ChunkEntity } from './entities/chunk.entity';
@@ -11,7 +10,6 @@ import { FileStatus } from '@files-assistant/core';
 describe('FilesService', () => {
   let service: FilesService;
   let fileRepo: Record<string, jest.Mock>;
-  let loggerWarnSpy: jest.SpyInstance;
 
   beforeEach(async () => {
     fileRepo = {
@@ -30,7 +28,6 @@ describe('FilesService', () => {
     }).compile();
 
     service = module.get(FilesService);
-    loggerWarnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
   });
 
   afterEach(() => {
@@ -183,17 +180,17 @@ describe('FilesService', () => {
     expect(completed).toBe(true);
   });
 
-  // ── Invalid transition warning ────────────────────────────────────
+  // ── Invalid transition handling ────────────────────────────────────
 
-  it('invalid transition is logged as warning but still applied', async () => {
+  it('invalid transition throws conflict exception', async () => {
     fileRepo.findOne.mockResolvedValue({ id: 'f-1', status: FileStatus.READY } as FileEntity);
 
-    await service.updateStatus('f-1', FileStatus.PROCESSING);
-
-    expect(loggerWarnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Invalid status transition'),
-    );
-    expect(fileRepo.update).toHaveBeenCalledWith('f-1', { status: FileStatus.PROCESSING });
+    await expect(
+      service.updateStatus('f-1', FileStatus.PROCESSING),
+    ).rejects.toThrow('Invalid status transition');
+    expect(fileRepo.update).not.toHaveBeenCalledWith('f-1', {
+      status: FileStatus.PROCESSING,
+    });
   });
 
   // ── findAll with status filter ────────────────────────────────────

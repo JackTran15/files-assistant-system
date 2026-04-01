@@ -21,6 +21,7 @@ interface FilesState {
     error?: string,
   ) => void;
   removeFile: (fileId: string) => Promise<void>;
+  retryFile: (fileId: string) => Promise<void>;
 }
 
 export const useFilesStore = create<FilesState>((set, get) => ({
@@ -113,6 +114,24 @@ export const useFilesStore = create<FilesState>((set, get) => ({
       }));
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Delete failed' });
+    }
+  },
+
+  retryFile: async (fileId) => {
+    try {
+      const updated = await api.files.retry(fileId);
+      set((state) => ({
+        files: state.files.map((f) => (f.id === fileId ? updated : f)),
+        selectedFileIds: (() => {
+          const next = new Set(state.selectedFileIds);
+          next.delete(fileId);
+          return next;
+        })(),
+        error: null,
+      }));
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Retry failed' });
+      throw err;
     }
   },
 }));

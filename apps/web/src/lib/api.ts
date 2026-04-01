@@ -82,6 +82,13 @@ export const api = {
       return request<void>(`/api/files/${id}`, { method: 'DELETE' });
     },
 
+    retry(id: string) {
+      return request<import('@/types/file.types').FileItem>(
+        `/api/files/${id}/retry`,
+        { method: 'POST' },
+      );
+    },
+
     eventsUrl(id: string) {
       return `${API_BASE}/api/files/${id}/events`;
     },

@@ -1,73 +1,69 @@
 # Files Assistant — System Scenarios & Architecture Diagrams
 
-This document provides a visual reference for the files-assistant multi-agent system. Each section contains a Mermaid diagram illustrating a key aspect of the architecture, along with explanatory context.
+This document provides a visual reference for the files-assistant system. Each section contains a Mermaid diagram illustrating a key aspect of the architecture, along with explanatory context.
 
 ---
 
 ## Table of Contents
 
-1. [Multi-Agent Architecture](#1-multi-agent-architecture)
+1. [Agent Architecture](#1-agent-architecture)
 2. [Ingestion Flow](#2-ingestion-flow)
 3. [Chat + gRPC Streaming Flow](#3-chat--grpc-streaming-flow)
-4. [Citation Confidence Feedback Loop](#4-citation-confidence-feedback-loop)
+4. [Inline Citation & Source Collection](#4-inline-citation--source-collection)
 5. [Error and Degradation Flows](#5-error-and-degradation-flows)
 6. [Transport Architecture](#6-transport-architecture)
 
 ---
 
-## 1. Multi-Agent Architecture
+## 1. Agent Architecture
 
-The system is orchestrated by a **Supervisor** (FilesAssistant) that delegates work to five specialised sub-agents. Each agent is backed by a specific Claude model and exposes purpose-built tools.
+The system has two distinct runtime paths — **chat** and **ingestion** — with clearly separated responsibilities.
+
+**Chat** is handled by a single VoltAgent **FilesAssistant** agent backed by Anthropic Claude. It decides which tools to call based on the user's message and its system instructions.
+
+**Ingestion** is a deterministic pipeline in `IngestionConsumer` (no LLM orchestration). It runs extract → chunk → embed → store sequentially when a `file.uploaded` Kafka event arrives.
 
 ```mermaid
 graph TB
-    subgraph Supervisor["Supervisor — FilesAssistant<br/><i>claude-sonnet-4-20250514</i>"]
+    subgraph ChatPath["Chat Path"]
         direction TB
-        SUP((Supervisor))
+        FA["FilesAssistant Agent<br/><i>claude-sonnet-4-20250514 (configurable)</i>"]
+        T1["searchFiles<br/>Hybrid BM25 + vector"]
+        T2["readFile<br/>Full file content via stored chunks"]
+        FA --> T1
+        FA --> T2
     end
 
-    subgraph SearchAgent["SearchAgent<br/><i>claude-3-5-sonnet-20241022</i>"]
-        SA_T1[hybridSearch]
-        SA_T2[keywordSearch]
+    subgraph IngestionPath["Ingestion Path"]
+        direction TB
+        IC["IngestionConsumer<br/><i>deterministic pipeline</i>"]
+        S1["extractText<br/>PDF via Haiku, raw for TXT/MD/JSON"]
+        S2["RecursiveTextChunker"]
+        S3["Voyage AI embeddings"]
+        S4["Weaviate storage"]
+        IC --> S1
+        S1 --> S2
+        S2 --> S3
+        S3 --> S4
     end
 
-    subgraph IngestionAgent["IngestionAgent<br/><i>claude-3-5-sonnet-20241022</i>"]
-        IA_T1[extractText]
-        IA_T2[chunkText]
-        IA_T3[embedAndStore]
-    end
-
-    subgraph AnalysisAgent["AnalysisAgent<br/><i>claude-sonnet-4-20250514</i>"]
-        AA_T1[getFileContent]
-        AA_T2[compareFiles]
-    end
-
-    subgraph SummaryAgent["SummaryAgent<br/><i>claude-sonnet-4-20250514</i>"]
-        SMA_T1[summarizeDocument]
-    end
-
-    subgraph CitationAgent["CitationAgent<br/><i>claude-3-5-sonnet-20241022</i>"]
-        CA_T1[evaluateCitationConfidence]
-    end
-
-    SUP -->|delegates search| SearchAgent
-    SUP -->|delegates ingestion| IngestionAgent
-    SUP -->|delegates analysis| AnalysisAgent
-    SUP -->|delegates summarisation| SummaryAgent
-    SUP -->|delegates citation| CitationAgent
+    Kafka["Kafka (Redpanda)"]
+    Kafka -->|"chat.request"| FA
+    Kafka -->|"file.uploaded"| IC
 ```
 
 **Key points:**
 
-- The Supervisor never calls tools directly — it routes tasks to the appropriate sub-agent.
-- `claude-sonnet-4-20250514` is used where complex reasoning is needed (Supervisor, Analysis, Summary).
-- `claude-3-5-sonnet-20241022` handles high-throughput or more mechanical tasks (Search, Ingestion, Citation).
+- The FilesAssistant agent uses `streamText` to produce response tokens streamed over gRPC.
+- Ingestion does not involve the LLM agent — it is a Kafka consumer running a fixed pipeline.
+- PDF extraction uses Anthropic Haiku via the `document` block API; plain text/markdown/JSON are read raw.
+- The chat model is configurable via `ANTHROPIC_MODEL` env var (default `claude-sonnet-4-20250514`).
 
 ---
 
 ## 2. Ingestion Flow
 
-When a user uploads a file, the system processes it asynchronously through Kafka and the IngestionAgent pipeline. The client receives real-time status updates via SSE.
+When a user uploads a file, the system processes it asynchronously through Kafka and the `IngestionConsumer` pipeline. The client receives real-time status updates via SSE.
 
 ```mermaid
 sequenceDiagram
@@ -75,56 +71,67 @@ sequenceDiagram
     participant Client
     participant Backend as Backend API
     participant Kafka
-    participant Agent as IngestionAgent
+    participant Agent as IngestionConsumer
+    participant Voyage as Voyage AI
     participant Weaviate
     participant Postgres
 
     Client->>Backend: POST /api/files/upload (multipart/form-data)
-    Backend->>Postgres: Insert file record (status: pending)
-    Backend->>Kafka: Produce → file.uploaded
+    Backend->>Postgres: Insert file record (status: processing)
+    Backend->>Kafka: Produce -> file.uploaded
     Backend-->>Client: 202 Accepted (fileId)
 
     Note over Client,Backend: Client opens SSE connection<br/>GET /api/files/:id/events
 
-    Kafka->>Agent: Consume ← file.uploaded
+    Kafka->>Agent: Consume <- file.uploaded
 
     rect rgb(230, 245, 230)
-        Note right of Agent: IngestionAgent Pipeline
-        Agent->>Agent: extractText(file)
+        Note right of Agent: IngestionConsumer Pipeline
+        Agent->>Agent: extractText (PDF via Haiku / raw read)
         alt Extraction fails
-            Agent->>Kafka: Produce → file.failed (reason: extraction_error)
-            Kafka->>Backend: Consume ← file.failed
-            Backend->>Postgres: Update file (status: failed)
-            Backend-->>Client: SSE event: file.failed
+            Agent->>Kafka: Produce -> file.failed (stage: extraction)
+            Kafka->>Backend: Consume <- file.failed
+            Backend->>Postgres: Update file (status: failed, errorStage: extraction)
+            Backend-->>Client: SSE event: failed
         end
 
-        Agent->>Agent: chunkText(extractedContent)
-        alt Chunking fails
-            Agent->>Kafka: Produce → file.failed (reason: chunking_error)
-            Kafka->>Backend: Consume ← file.failed
-            Backend->>Postgres: Update file (status: failed)
-            Backend-->>Client: SSE event: file.failed
+        Agent->>Kafka: Produce -> file.extracted (parsedText, extractionMethod)
+        Kafka->>Backend: Consume <- file.extracted
+        Backend->>Postgres: Save parsedText, set status: extracted
+        Backend-->>Client: SSE event: extracted
+
+        Agent->>Agent: RecursiveTextChunker (chunkSize: 1500, overlap: 200)
+        alt Zero chunks produced
+            Agent->>Kafka: Produce -> file.failed (stage: chunking)
+            Kafka->>Backend: Consume <- file.failed
+            Backend->>Postgres: Update file (status: failed, errorStage: chunking)
+            Backend-->>Client: SSE event: failed
         end
 
-        Agent->>Weaviate: embedAndStore(chunks)
-        alt Embedding/storage fails
-            Agent->>Kafka: Produce → file.failed (reason: embedding_error)
-            Kafka->>Backend: Consume ← file.failed
-            Backend->>Postgres: Update file (status: failed)
-            Backend-->>Client: SSE event: file.failed
+        Agent->>Agent: buildContextualTexts (enrich chunks with file name + section heading)
+        Agent->>Voyage: embedDocuments (contextual texts, input_type: document)
+        Agent->>Weaviate: storeChunks (text + vectors)
+        alt Embedding or storage fails
+            Agent->>Kafka: Produce -> file.failed (stage: embedding)
+            Kafka->>Backend: Consume <- file.failed
+            Backend->>Postgres: Update file (status: failed, errorStage: embedding)
+            Backend-->>Client: SSE event: failed
         end
     end
 
-    Agent->>Kafka: Produce → file.ready
-    Kafka->>Backend: Consume ← file.ready
-    Backend->>Postgres: Update file (status: ready)
-    Backend-->>Client: SSE event: file.ready
+    Agent->>Kafka: Produce -> file.ready (chunksCreated, vectorsStored)
+    Kafka->>Backend: Consume <- file.ready
+    Backend->>Postgres: Update file (status: ready, chunkCount)
+    Backend-->>Client: SSE event: ready
 ```
 
 **Key points:**
 
 - The backend returns `202 Accepted` immediately — all heavy processing is async.
-- Three distinct failure points (extraction, chunking, embedding) each produce a `file.failed` event with a specific reason.
+- `file.extracted` is published after text extraction and before chunking, so the backend can persist parsed text early.
+- Three distinct failure stages (`extraction`, `chunking`, `embedding`) are conveyed via the `stage` field on `file.failed`.
+- The `embedding` stage covers both Voyage AI API failures and Weaviate storage failures.
+- Contextual enrichment prepends file name and nearest section heading to each chunk before embedding (embedding input only — stored text is unchanged).
 - Weaviate stores the vector-embedded chunks; Postgres tracks file metadata and status.
 
 ---
@@ -139,179 +146,182 @@ sequenceDiagram
     participant Client
     participant Backend as Backend API
     participant Kafka
-    participant Supervisor as Supervisor (FilesAssistant)
-    participant Search as SearchAgent
-    participant Summary as SummaryAgent
-    participant Citation as CitationAgent
+    participant Agent as FilesAssistant
+    participant Weaviate
     participant gRPC as gRPC Stream
+    participant Postgres
 
-    Client->>Backend: POST /api/chat { message, conversationId }
-    Backend->>Kafka: Produce → chat.request (correlationId)
-    Backend-->>Client: 200 OK { correlationId }
+    Client->>Backend: POST /api/chat { message, tenantId, fileIds? }
+    Backend->>Backend: Validate fileIds are READY (if provided)
+    Backend->>Postgres: Save user message, create conversation if needed
+    Backend->>Kafka: Produce -> chat.request (correlationId)
+    Backend-->>Client: 200 OK { correlationId, conversationId }
 
     Note over Client,Backend: Client opens SSE connection<br/>GET /api/chat/stream/:correlationId
 
-    Kafka->>Supervisor: Consume ← chat.request
+    Kafka->>Agent: Consume <- chat.request
 
     rect rgb(230, 240, 255)
-        Note right of Supervisor: Multi-Agent Orchestration
-        Supervisor->>Search: Find relevant chunks
-        Search->>Search: hybridSearch(query)
-        Search-->>Supervisor: Search results
-
-        Supervisor->>Summary: Summarise with sources
-        Summary->>Summary: summarizeDocument(context)
-        Summary-->>Supervisor: Drafted response
-
-        Supervisor->>Citation: Add citations & verify
-        Citation->>Citation: evaluateCitationConfidence(response)
-        Citation-->>Supervisor: Cited response + confidence score
+        Note right of Agent: Single-Agent Tool Use
+        Agent->>Agent: Enrich prompt with [Context] tenantId + fileIds
+        Agent->>Agent: streamText (decide which tools to call)
+        Agent->>Weaviate: searchFiles (hybrid BM25 + vector)
+        Weaviate-->>Agent: Search results with scores
+        Agent->>Weaviate: readFile (optional, full file via stored chunks)
+        Weaviate-->>Agent: File content chunks
+        Note right of Agent: SourceCollector gathers tool outputs
     end
 
     rect rgb(255, 245, 230)
-        Note over Supervisor,gRPC: Real-time response streaming via gRPC
-        Supervisor->>gRPC: StreamChatResponse (chunk 1)
+        Note over Agent,gRPC: Real-time response streaming via gRPC
+        Agent->>gRPC: StreamChatResponse (chunk 1)
         gRPC->>Backend: chunk 1
         Backend-->>Client: SSE data: chunk 1
 
-        Supervisor->>gRPC: StreamChatResponse (chunk 2)
+        Agent->>gRPC: StreamChatResponse (chunk 2)
         gRPC->>Backend: chunk 2
         Backend-->>Client: SSE data: chunk 2
 
-        Supervisor->>gRPC: StreamChatResponse (chunk N — final)
-        gRPC->>Backend: chunk N
-        Backend-->>Client: SSE data: chunk N (stream complete)
+        Agent->>gRPC: StreamChatResponse (final chunk + sources)
+        gRPC->>Backend: final chunk (done: true, sources array)
+        Backend-->>Client: SSE data: final chunk (stream complete)
     end
 
-    Backend->>Postgres: Persist conversation + response
+    Backend->>Postgres: Persist assistant message + sources
 ```
 
 **Key points:**
 
 - **Kafka** carries the initial `chat.request` (async, durable, retryable).
-- **gRPC `StreamChatResponse`** carries the response chunks (real-time, low-latency).
+- **gRPC `StreamChatResponse`** carries the response chunks (real-time, low-latency). The final chunk includes a `sources` array with file references and relevance scores.
 - The backend bridges gRPC chunks into SSE events for the browser client.
-- Conversation history is persisted to Postgres after streaming completes.
+- SSE includes a **heartbeat** every 15 seconds and a **120-second timeout**. A `POST /api/chat/cancel/:correlationId` endpoint allows explicit stream cancellation.
+- Conversation history (user message + assistant response + sources) is persisted to Postgres after streaming completes.
+- The backend validates that all requested `fileIds` are in `READY` status before publishing `chat.request`.
 
 ---
 
-## 4. Citation Confidence Feedback Loop
+## 4. Inline Citation & Source Collection
 
-The CitationAgent scores every response using a weighted confidence formula. If the score falls below the threshold, the system retries through a feedback loop between the SummaryAgent and CitationAgent.
+The FilesAssistant agent produces inline citations as part of its natural response generation, guided by system instructions. There is no separate citation sub-agent or post-processing loop.
 
 ```mermaid
 flowchart TD
-    Start([SummaryAgent produces<br/>drafted response]) --> Cite[CitationAgent adds citations]
-    Cite --> Eval["evaluateCitationConfidence(response)"]
+    Start(["User asks a question"]) --> Tools["Agent calls searchFiles / readFile"]
+    Tools --> Collector["SourceCollector captures tool outputs<br/>(fileId, fileName, chunkIndex, score, content)"]
+    Collector --> Generate["Agent generates response with inline [N] citations"]
+    Generate --> Stream["Response streamed via gRPC"]
+    Stream --> Final["Final chunk includes structured sources array"]
 
-    Eval --> Score{Compute weighted score}
+    subgraph SourceDedup["Source Deduplication"]
+        direction TB
+        Raw["Raw tool results"] --> Filter["Filter: score >= 0.5"]
+        Filter --> Dedup["Deduplicate by fileId:chunkIndex"]
+        Dedup --> Enrich["Add excerpt, pageNumber"]
+    end
 
-    Score --> Weights["<b>Scoring Weights</b><br/>Coverage: 50%<br/>Validity: 30%<br/>Utilization: 20%"]
-    Weights --> Check{"score ≥ 0.7?"}
-
-    Check -- "Yes (high confidence)" --> Accept([Return cited response<br/>to Supervisor])
-
-    Check -- "No (low confidence)" --> RetryCheck{"Retries < 1?"}
-
-    RetryCheck -- "Yes — can retry" --> Refine["[Refining...]<br/>SummaryAgent re-generates<br/>with feedback on weak areas"]
-    Refine --> Cite2[CitationAgent re-evaluates<br/>new response]
-    Cite2 --> Eval2["evaluateCitationConfidence(response v2)"]
-    Eval2 --> Check2{"score ≥ 0.7?"}
-
-    Check2 -- "Yes" --> Accept
-    Check2 -- "No (still low)" --> AcceptLow([Accept low-confidence response<br/>after max retries exhausted])
-
-    RetryCheck -- "No — max retries reached" --> AcceptLow
+    Collector --> SourceDedup
+    SourceDedup --> Final
 ```
 
-**Key points:**
+**How it works:**
 
-- **Coverage (50%)** — Are all claims backed by source material?
-- **Validity (30%)** — Are the cited sources genuine and correctly referenced?
-- **Utilization (20%)** — Are the available sources being used effectively?
-- The threshold is **0.7**. Responses scoring below this trigger a re-generation loop.
-- **Max retries = 1** — the system makes at most one refinement attempt before accepting whatever score it has.
+1. The agent's system instructions direct it to add `[N]` citation markers after claims that draw on tool results.
+2. A `SourceCollector` hooks into `onToolEnd` — it captures search results from `searchFiles` and chunk data from `readFile`.
+3. After streaming completes, collected sources are deduplicated (by `fileId:chunkIndex`), filtered (minimum score `0.5`), and attached to the final gRPC chunk as a structured `sources` array.
+4. The frontend renders source details automatically from this structured metadata — the agent does not produce a references section.
+
+**Citation rules (from agent instructions):**
+
+- Number citations starting from 1 in the order that distinct source chunks first appear.
+- Place `[N]` immediately after the claim or quote it supports.
+- If multiple results from the same file and chunk support a claim, use the same `[N]`.
+- Never invent citations — if no sources are available, respond without markers.
 
 ---
 
 ## 5. Error and Degradation Flows
 
-The system is designed to degrade gracefully. Rather than returning an error to the user when a single component fails, it falls through a chain of progressively less ideal response types. Poison messages are routed to dead-letter queues.
+The system is designed to degrade gracefully. Chat errors are surfaced through the gRPC/SSE path. Ingestion failures are published as `file.failed` with a specific `stage`. Poison messages are routed to dead-letter queues.
 
 ```mermaid
 flowchart TD
-    Start([Chat request arrives]) --> Orchestrate[Supervisor orchestrates<br/>Search → Summary → Citation]
+    Start(["Chat request arrives"]) --> Agent["FilesAssistant processes query"]
 
-    Orchestrate --> CitationOK{"CitationAgent<br/>succeeded?"}
+    Agent --> ToolOK{"Tool calls<br/>succeeded?"}
 
-    CitationOK -- Yes --> ConfCheck{"Confidence<br/>≥ 0.7?"}
-    ConfCheck -- Yes --> Best(["✅ <b>Best Cited Response</b><br/>High-confidence citations<br/><i>Ideal outcome</i>"])
+    ToolOK -- Yes --> Respond(["Agent responds with<br/>inline citations + sources"])
 
-    ConfCheck -- No --> RetryDone{"Max retries<br/>exhausted?"}
-    RetryDone -- No --> Retry["Retry feedback loop<br/>(see §4)"]
-    Retry --> ConfCheck
+    ToolOK -- "Partial (some tools failed)" --> Partial(["Agent responds with<br/>available information"])
 
-    RetryDone -- Yes --> LowConf(["⚠️ <b>Low-Confidence Cited Response</b><br/>Accepted after max retries<br/><i>Degraded but usable</i>"])
+    Agent -- "Agent error / LLM failure" --> ErrorMsg(["Error message streamed<br/>to client via gRPC/SSE"])
 
-    CitationOK -- "No (CitationAgent failed)" --> SummaryOK{"SummaryAgent<br/>response available?"}
-    SummaryOK -- Yes --> RawUncited(["🔶 <b>Raw Uncited Response</b><br/>Summary without citations<br/><i>Further degraded</i>"])
-
-    SummaryOK -- No --> AgentCrash(["❌ <b>Error Response</b><br/>Agent pipeline crashed<br/><i>User sees error message</i>"])
-
-    subgraph DLQ["Dead-Letter Queue (DLQ) Flow"]
+    subgraph DLQ["Dead-Letter Queue Flow"]
         direction TB
-        Poison([Poison message<br/>repeated processing failures]) --> DLQRoute{"Source topic?"}
-        DLQRoute -- "file.uploaded" --> DLQF[dlq.file.uploaded]
-        DLQRoute -- "chat.request" --> DLQC[dlq.chat.request]
-        DLQF --> Monitor[Ops monitoring &<br/>manual inspection]
+        Poison(["Poison message<br/>repeated processing failures"]) --> DLQRoute{"Source topic?"}
+        DLQRoute -- "file.uploaded" --> DLQF["dlq.file.uploaded"]
+        DLQRoute -- "file.extracted" --> DLQE["dlq.file.extracted"]
+        DLQRoute -- "chat.request" --> DLQC["dlq.chat.request"]
+        DLQF --> Monitor["Ops monitoring &<br/>manual inspection"]
+        DLQE --> Monitor
         DLQC --> Monitor
     end
 
-    AgentCrash -.->|"if caused by<br/>poison message"| Poison
+    ErrorMsg -.->|"if caused by<br/>poison message"| Poison
 ```
 
-**Degradation chain (best to worst):**
+**Chat degradation:**
 
 | Tier | Response Type | Condition |
 |------|--------------|-----------|
-| 1 | Best cited response | Confidence ≥ 0.7 on first or retry pass |
-| 2 | Low-confidence cited response | Confidence < 0.7 after max retries (1) exhausted |
-| 3 | Raw uncited response | CitationAgent failed but SummaryAgent output exists |
-| 4 | Error response | Agent pipeline crashed entirely |
+| 1 | Cited response with sources | Tool calls succeed, sources collected |
+| 2 | Partial response | Some tools fail, agent responds with available info |
+| 3 | Error message | Agent pipeline fails entirely (LLM error, timeout) |
+
+**Ingestion degradation:**
+
+| Stage | Failure | Result |
+|-------|---------|--------|
+| `extraction` | PDF Haiku error, file not found, unsupported MIME | `file.failed` with `stage: extraction` |
+| `chunking` | Zero chunks produced from extracted text | `file.failed` with `stage: chunking` |
+| `embedding` | Voyage API failure or Weaviate storage error | `file.failed` with `stage: embedding` |
 
 **DLQ topics:**
 
 - `dlq.file.uploaded` — failed file ingestion messages
+- `dlq.file.extracted` — failed extracted text processing
 - `dlq.chat.request` — failed chat processing messages
 
 ---
 
 ## 6. Transport Architecture
 
-The system uses two transport mechanisms with clearly separated responsibilities. Kafka handles durable, async event processing. gRPC handles real-time, low-latency response streaming.
+The system uses three transport layers with clearly separated responsibilities. Kafka handles durable, async event processing. gRPC handles real-time, low-latency response streaming. SSE bridges gRPC to the browser.
 
 ```mermaid
 graph LR
-    subgraph Kafka_Async["<b>Kafka (Redpanda) — Async / Durable</b>"]
+    subgraph Kafka_Async["Kafka Redpanda - Async / Durable"]
         direction TB
         T1["chat.request"]
         T2["file.uploaded"]
-        T3["file.ready"]
-        T4["file.failed"]
-        T5["dlq.chat.request"]
-        T6["dlq.file.uploaded"]
+        T3["file.extracted"]
+        T4["file.ready"]
+        T5["file.failed"]
+        T6["dlq.chat.request"]
+        T7["dlq.file.uploaded"]
+        T8["dlq.file.extracted"]
     end
 
-    subgraph gRPC_RT["<b>gRPC — Real-Time / Streaming</b>"]
+    subgraph gRPC_RT["gRPC - Real-Time / Streaming"]
         direction TB
         G1["StreamChatResponse"]
     end
 
     Client((Client))
-    Backend[Backend API]
-    Agents[Agent Service]
-    Weaviate[(Weaviate)]
-    Postgres[(Postgres)]
+    Backend["Backend API"]
+    Agents["Agent Service"]
+    Weaviate[("Weaviate")]
+    Postgres[("Postgres")]
 
     Client -->|"HTTP POST"| Backend
     Backend -->|"produce"| T1
@@ -321,11 +331,14 @@ graph LR
 
     Agents -->|"produce"| T3
     Agents -->|"produce"| T4
+    Agents -->|"produce"| T5
     T3 -->|"consume"| Backend
     T4 -->|"consume"| Backend
+    T5 -->|"consume"| Backend
 
-    Agents -.->|"on failure"| T5
     Agents -.->|"on failure"| T6
+    Agents -.->|"on failure"| T7
+    Agents -.->|"on failure"| T8
 
     Agents ==>|"StreamChatResponse<br/>(response chunks)"| G1
     G1 ==>|"forward chunks"| Backend
@@ -339,16 +352,24 @@ graph LR
 
 | Transport | Direction | Topics / RPCs | Purpose |
 |-----------|-----------|--------------|---------|
-| **Kafka** | Backend → Agent | `chat.request`, `file.uploaded` | Durable task dispatch |
-| **Kafka** | Agent → Backend | `file.ready`, `file.failed` | Async status notifications |
-| **Kafka** | Agent → DLQ | `dlq.chat.request`, `dlq.file.uploaded` | Poison message quarantine |
-| **gRPC** | Agent → Backend | `StreamChatResponse` | Real-time response streaming |
-| **SSE** | Backend → Client | (HTTP event stream) | Browser-compatible push |
+| **Kafka** | Backend -> Agent | `chat.request`, `file.uploaded` | Durable task dispatch |
+| **Kafka** | Agent -> Backend | `file.extracted`, `file.ready`, `file.failed` | Async status notifications |
+| **Kafka** | Agent -> DLQ | `dlq.chat.request`, `dlq.file.uploaded`, `dlq.file.extracted` | Poison message quarantine |
+| **gRPC** | Agent -> Backend | `ChatStream.StreamChatResponse` | Real-time response streaming |
+| **SSE** | Backend -> Client | (HTTP event stream) | Browser-compatible push |
+
+**Kafka consumer groups:**
+
+| Group | Service | Subscribes to |
+|-------|---------|---------------|
+| `agent-ingestion` | Agent | `file.uploaded` |
+| `agent-chat` | Agent | `chat.request` |
+| `backend-notifications` | Backend | `file.ready`, `file.failed`, `file.extracted` |
 
 **Why the split?**
 
 - **Kafka** provides durability, retry semantics, and consumer-group scaling for work that doesn't need instant delivery.
-- **gRPC** provides bidirectional streaming with backpressure for response chunks where latency matters.
+- **gRPC** provides client-streaming with backpressure for response chunks where latency matters.
 - **SSE** bridges gRPC to the browser, which cannot consume gRPC directly.
 
 ---
@@ -358,7 +379,7 @@ graph LR
 | Component | Role | Persistence |
 |-----------|------|-------------|
 | **Postgres** | File metadata, conversations, chat history | Durable (relational) |
-| **Weaviate** | Vector-embedded document chunks | Durable (vector) |
+| **Weaviate** | Vector-embedded document chunks (HNSW + BM25) | Durable (vector) |
 | **Redpanda** | Kafka-compatible event broker | Durable (log) |
 | **Backend API** | HTTP/SSE gateway, Kafka producer/consumer, gRPC client | Stateless |
-| **Agent Service** | Multi-agent orchestration, Kafka consumer, gRPC server | Stateless |
+| **Agent Service** | FilesAssistant agent + IngestionConsumer, Kafka consumer, gRPC server | Stateless |

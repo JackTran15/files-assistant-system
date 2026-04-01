@@ -1,4 +1,4 @@
-import { FileText, FileType2, File, Trash2 } from 'lucide-react';
+import { FileText, FileType2, File, Trash2, RotateCcw } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -6,6 +6,7 @@ import type { FileItem as FileItemType } from '@/types/file.types';
 import { FileStatus, FileType } from '@/types/file.types';
 import { useFilesStore } from '@/stores/files-store';
 import { cn } from '@/lib/cn';
+import { useFileEvents } from '@/hooks/use-file-events';
 
 const statusConfig: Record<
   FileStatus,
@@ -18,6 +19,21 @@ const statusConfig: Record<
   [FileStatus.PENDING]: { label: 'Pending', variant: 'muted' },
   [FileStatus.PROCESSING]: {
     label: 'Processing',
+    variant: 'warning',
+    pulse: true,
+  },
+  [FileStatus.EXTRACTING]: {
+    label: 'Extracting',
+    variant: 'warning',
+    pulse: true,
+  },
+  [FileStatus.EXTRACTED]: {
+    label: 'Extracted',
+    variant: 'warning',
+    pulse: true,
+  },
+  [FileStatus.EMBEDDING]: {
+    label: 'Embedding',
     variant: 'warning',
     pulse: true,
   },
@@ -43,12 +59,27 @@ interface FileItemProps {
 }
 
 export function FileItemRow({ file }: FileItemProps) {
-  const { selectedFileIds, toggleFileSelection, removeFile, highlightedFileId } = useFilesStore();
+  const {
+    selectedFileIds,
+    toggleFileSelection,
+    removeFile,
+    retryFile,
+    highlightedFileId,
+  } = useFilesStore();
   const isSelected = selectedFileIds.has(file.id);
   const isHighlighted = highlightedFileId === file.id;
   const config = statusConfig[file.status];
   const isReady = file.status === FileStatus.READY;
-  const isProcessing = file.status === FileStatus.PROCESSING;
+  const isInProgress = [
+    FileStatus.PROCESSING,
+    FileStatus.EXTRACTING,
+    FileStatus.EXTRACTED,
+    FileStatus.EMBEDDING,
+  ].includes(file.status);
+  const canRetry =
+    file.status === FileStatus.FAILED || file.status === FileStatus.READY;
+
+  useFileEvents(isInProgress ? file.id : null);
 
   return (
     <div
@@ -79,21 +110,44 @@ export function FileItemRow({ file }: FileItemProps) {
       </Badge>
       <Tooltip
         content={
-          isProcessing ? 'Cannot delete while processing' : `Delete ${file.name}`
+          isInProgress ? 'Cannot delete while processing' : `Delete ${file.name}`
         }
       >
         <button
           onClick={() => removeFile(file.id)}
-          disabled={isProcessing}
+          disabled={isInProgress}
           className={cn(
             'p-0.5 rounded transition-opacity',
-            isProcessing
+            isInProgress
               ? 'opacity-30 cursor-not-allowed'
               : 'opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive',
           )}
           aria-label={`Delete ${file.name}`}
         >
           <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
+      <Tooltip
+        content={
+          canRetry
+            ? `Restart embedding for ${file.name}`
+            : 'Retry is available when file is ready or failed'
+        }
+      >
+        <button
+          onClick={() => {
+            void retryFile(file.id);
+          }}
+          disabled={!canRetry || isInProgress}
+          className={cn(
+            'p-0.5 rounded transition-opacity',
+            !canRetry || isInProgress
+              ? 'opacity-30 cursor-not-allowed'
+              : 'opacity-0 group-hover:opacity-100 hover:bg-primary/10 text-muted-foreground hover:text-primary',
+          )}
+          aria-label={`Retry ${file.name}`}
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
         </button>
       </Tooltip>
     </div>

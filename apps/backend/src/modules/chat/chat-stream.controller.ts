@@ -15,6 +15,7 @@ interface ChatResponseChunk {
     score: number;
     excerpt?: string;
     pageNumber?: number;
+    content?: string;
   }>;
   confidenceScore?: number;
   revision?: number;
@@ -47,6 +48,7 @@ export class ChatStreamController {
               score: s.score,
               excerpt: s.excerpt,
               pageNumber: s.pageNumber,
+              content: s.content,
             })),
             confidenceScore: chunk.confidenceScore,
             revision: chunk.revision,

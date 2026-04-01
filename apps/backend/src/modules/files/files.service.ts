@@ -83,6 +83,69 @@ export class FilesService {
     return saved;
   }
 
+  private static readonly NON_RETRYABLE_STATUSES: FileStatus[] = [
+    FileStatus.PROCESSING,
+    FileStatus.EXTRACTING,
+    FileStatus.EXTRACTED,
+    FileStatus.EMBEDDING,
+  ];
+
+  async retry(fileId: string): Promise<FileEntity> {
+    const file = await this.findOne(fileId);
+
+    if (FilesService.NON_RETRYABLE_STATUSES.includes(file.status)) {
+      throw new ConflictException(
+        `Cannot retry file while it is ${file.status}`,
+      );
+    }
+
+    await this.fileRepo
+      .createQueryBuilder()
+      .update(FileEntity)
+      .set({
+        status: FileStatus.PROCESSING,
+        chunkCount: 0,
+        errorMessage: () => 'NULL',
+        errorStage: () => 'NULL',
+        parsedText: () => 'NULL',
+        extractionMethod: () => 'NULL',
+      })
+      .where('id = :id', { id: file.id })
+      .execute();
+    this.emitStatusEvent(file.id, FileStatus.PROCESSING);
+
+    try {
+      await this.kafkaProducer.publish(
+        'file.uploaded',
+        file.tenantId,
+        createFileUploadedEvent({
+          fileId: file.id,
+          tenantId: file.tenantId,
+          fileName: file.name,
+          mimeType: file.mimeType,
+          storagePath: file.storagePath,
+          size: Number(file.size),
+        }),
+      );
+    } catch (error) {
+      this.logger.error(
+        `Kafka publish failed for retry ${file.id}, restoring previous status`,
+        error instanceof Error ? error.stack : error,
+      );
+      await this.fileRepo.update(file.id, {
+        status: file.status,
+        chunkCount: file.chunkCount,
+        errorMessage: file.errorMessage ?? undefined,
+        errorStage: file.errorStage ?? undefined,
+        parsedText: file.parsedText ?? undefined,
+        extractionMethod: file.extractionMethod ?? undefined,
+      });
+      throw error;
+    }
+
+    return (await this.findOne(file.id));
+  }
+
   async updateStatus(
     fileId: string,
     status: FileStatus,

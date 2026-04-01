@@ -23,6 +23,7 @@ message SourceRef {
   double score = 4;
   optional string excerpt = 5;
   optional int32 page_number = 6;
+  optional string content = 7;
 }
 
 message StreamResponseAck {

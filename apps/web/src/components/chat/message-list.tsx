@@ -34,7 +34,7 @@ export function MessageList() {
   );
 
   const isEmpty = messages.length === 0 && !isThinking && !isStreaming;
-  const showThinking = isThinking || (isStreaming && !!streamingThinking && !streamingContent);
+  const showThinking = isThinking || (isStreaming && !!streamingThinking);
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">

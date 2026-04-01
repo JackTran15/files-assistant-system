@@ -1,5 +1,6 @@
 import type { ChatResponseSource } from '@/types/chat.types';
 import { Tooltip } from '@/components/ui/tooltip';
+import { MarkdownPreviewTooltip } from '@/components/ui/markdown-preview-tooltip';
 import { cn } from '@/lib/cn';
 
 interface CitationChipProps {
@@ -7,13 +8,6 @@ interface CitationChipProps {
   source?: ChatResponseSource;
   isHighlighted?: boolean;
   onClick?: (refIndex: number) => void;
-}
-
-const MAX_TOOLTIP_EXCERPT = 160;
-
-function truncateExcerpt(text: string): string {
-  if (text.length <= MAX_TOOLTIP_EXCERPT) return text;
-  return text.slice(0, MAX_TOOLTIP_EXCERPT) + '…';
 }
 
 function SourceTooltipContent({ refIndex, source }: { refIndex: number; source: ChatResponseSource }) {
@@ -26,8 +20,8 @@ function SourceTooltipContent({ refIndex, source }: { refIndex: number; source: 
         )}
       </p>
       {source.excerpt && (
-        <p className="italic opacity-80 leading-snug">
-          &ldquo;{truncateExcerpt(source.excerpt)}&rdquo;
+        <p className="italic opacity-80 leading-snug whitespace-pre-wrap break-words">
+          &ldquo;{source.excerpt}&rdquo;
         </p>
       )}
       <p className="opacity-60 text-[10px]">
@@ -58,6 +52,17 @@ export function CitationChip({ refIndex, source, isHighlighted, onClick }: Citat
   );
 
   if (!source) return chip;
+
+  if (source.content) {
+    return (
+      <MarkdownPreviewTooltip
+        markdown={source.content}
+        searchText={source.excerpt}
+      >
+        {chip}
+      </MarkdownPreviewTooltip>
+    );
+  }
 
   return (
     <Tooltip
