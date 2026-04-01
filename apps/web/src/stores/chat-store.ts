@@ -47,6 +47,39 @@ interface ChatState {
   clearError: () => void;
 }
 
+function normalizeSource(source: ChatResponseSource): ChatResponseSource {
+  return {
+    ...source,
+    citationContent: source.citationContent ?? source.content,
+  };
+}
+
+function normalizeSources(
+  sources?: ChatResponseSource[],
+): ChatResponseSource[] | undefined {
+  if (!sources?.length) return undefined;
+  return sources.map(normalizeSource);
+}
+
+function normalizeMessage(message: Message): Message {
+  const sources = normalizeSources(message.sources);
+  return {
+    ...message,
+    sources,
+    parts:
+      message.role === ChatRole.ASSISTANT
+        ? buildMessageParts(message.content, sources)
+        : message.parts,
+  };
+}
+
+function normalizeConversation(conversation: Conversation): Conversation {
+  return {
+    ...conversation,
+    messages: conversation.messages.map(normalizeMessage),
+  };
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
@@ -219,7 +252,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   finalizeStream: (sources, confidenceScore) => {
     set((state) => {
       const content = cleanAssistantContent(state._rawStream);
-      const resolvedSources = sources ?? [];
+      const resolvedSources = normalizeSources(sources) ?? [];
       const assistantMessage: Message = {
         id: `msg-${Date.now()}`,
         conversationId: state.activeConversationId ?? '',
@@ -248,7 +281,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadHistory: async () => {
     try {
       const result = await api.chat.history(TENANT_ID);
-      set({ conversations: result.data });
+      set({ conversations: result.data.map(normalizeConversation) });
     } catch (err) {
       set({
         error: err instanceof Error ? err.message : 'Failed to load history',
@@ -268,7 +301,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const conversation = get().conversations.find((c) => c.id === id);
     set({
       activeConversationId: id,
-      messages: conversation?.messages ?? [],
+      messages: conversation?.messages.map(normalizeMessage) ?? [],
       _rawStream: '',
       streamingContent: '',
       streamingThinking: null,

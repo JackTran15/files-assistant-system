@@ -63,7 +63,39 @@ describe('SourceCollector', () => {
     expect(sources![0].score).toBe(0.9);
   });
 
-  it('should sort results by score descending', () => {
+  it('should prefer exact source chunks over truncated tool results', () => {
+    collector.collect({
+      results: [
+        {
+          fileId: 'f1',
+          fileName: 'doc.pdf',
+          chunkIndex: 0,
+          content: 'truncated preview…',
+          score: 0.9,
+          metadata: {},
+        },
+      ],
+      _sourceChunks: [
+        {
+          fileId: 'f1',
+          fileName: 'doc.pdf',
+          chunkIndex: 0,
+          content: 'truncated preview but with the full parsed chunk preserved',
+          score: 0.9,
+          metadata: {},
+        },
+      ],
+      query: 'test',
+    });
+
+    const sources = collector.toStreamSources();
+    expect(sources).toHaveLength(1);
+    expect(sources![0].citationContent).toBe(
+      'truncated preview but with the full parsed chunk preserved',
+    );
+  });
+
+  it('should preserve insertion order for distinct chunks', () => {
     collector.collect({
       results: [
         {
@@ -88,11 +120,11 @@ describe('SourceCollector', () => {
 
     const sources = collector.toStreamSources();
     expect(sources).toHaveLength(2);
-    expect(sources![0].fileId).toBe('f2');
-    expect(sources![1].fileId).toBe('f1');
+    expect(sources![0].fileId).toBe('f1');
+    expect(sources![1].fileId).toBe('f2');
   });
 
-  it('should filter out sources with score below 50%', () => {
+  it('should keep low but finite scores to preserve citations', () => {
     collector.collect({
       results: [
         {
@@ -124,12 +156,40 @@ describe('SourceCollector', () => {
     });
 
     const sources = collector.toStreamSources();
-    expect(sources).toHaveLength(2);
-    expect(sources!.map((s) => s.fileId)).toEqual(['f1', 'f3']);
+    expect(sources).toHaveLength(3);
+    expect(sources!.map((s) => s.fileId)).toEqual(['f1', 'f2', 'f3']);
+  });
+
+  it('should filter out non-finite scores', () => {
+    collector.collect({
+      results: [
+        {
+          fileId: 'f1',
+          fileName: 'valid.pdf',
+          chunkIndex: 0,
+          content: 'text',
+          score: 0.7,
+          metadata: {},
+        },
+        {
+          fileId: 'f2',
+          fileName: 'nan.pdf',
+          chunkIndex: 0,
+          content: 'text',
+          score: Number.NaN,
+          metadata: {},
+        },
+      ],
+      query: 'test',
+    });
+
+    const sources = collector.toStreamSources();
+    expect(sources).toHaveLength(1);
+    expect(sources![0].fileId).toBe('f1');
   });
 
   it('should truncate long excerpts', () => {
-    const longContent = 'a'.repeat(300);
+    const longContent = 'a'.repeat(1000);
     collector.collect({
       results: [
         {
@@ -145,8 +205,9 @@ describe('SourceCollector', () => {
     });
 
     const sources = collector.toStreamSources();
-    expect(sources![0].excerpt!.length).toBeLessThanOrEqual(201);
+    expect(sources![0].excerpt!.length).toBeLessThanOrEqual(401);
     expect(sources![0].excerpt!.endsWith('…')).toBe(true);
+    expect(sources![0].citationContent).toBe(longContent);
   });
 
   it('should extract pageNumber from metadata', () => {
@@ -239,13 +300,13 @@ describe('createCollectorHooks', () => {
     expect(collector.size).toBe(1);
   });
 
-  it('should not collect from non-searchFiles tools', () => {
+  it('should not collect from unrelated tools', () => {
     const collector = new SourceCollector();
     const hooks = createCollectorHooks(collector);
 
     hooks.onToolEnd!({
       agent: {} as never,
-      tool: { name: 'readFile' } as never,
+      tool: { name: 'otherTool' } as never,
       output: {
         results: [
           {

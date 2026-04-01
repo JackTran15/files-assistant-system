@@ -11,6 +11,8 @@ export interface ChatResponseSource {
   score: number;
   excerpt?: string;
   pageNumber?: number;
+  citationContent?: string;
+  // Legacy persisted field kept for backwards-compatible history rendering.
   content?: string;
 }
 

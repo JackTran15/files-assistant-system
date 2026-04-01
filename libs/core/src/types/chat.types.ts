@@ -17,10 +17,10 @@ export interface ChatSource {
   fileId: string;
   fileName: string;
   chunkIndex: number;
-  content: string;
   score: number;
   excerpt?: string;
   pageNumber?: number;
+  citationContent?: string;
 }
 
 export interface ConversationMetadata {

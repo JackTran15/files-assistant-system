@@ -1,5 +1,4 @@
 import type { ChatResponseSource } from '@/types/chat.types';
-import { Tooltip } from '@/components/ui/tooltip';
 import { MarkdownPreviewTooltip } from '@/components/ui/markdown-preview-tooltip';
 import { cn } from '@/lib/cn';
 
@@ -10,25 +9,16 @@ interface CitationChipProps {
   onClick?: (refIndex: number) => void;
 }
 
-function SourceTooltipContent({ refIndex, source }: { refIndex: number; source: ChatResponseSource }) {
-  return (
-    <div className="space-y-1 text-left">
-      <p className="font-medium">
-        [{refIndex}] {source.fileName}
-        {source.pageNumber != null && (
-          <span className="opacity-70"> (p. {source.pageNumber})</span>
-        )}
-      </p>
-      {source.excerpt && (
-        <p className="italic opacity-80 leading-snug whitespace-pre-wrap break-words">
-          &ldquo;{source.excerpt}&rdquo;
-        </p>
-      )}
-      <p className="opacity-60 text-[10px]">
-        Relevance: {Math.round(source.score * 100)}%
-      </p>
-    </div>
-  );
+function getCitationPreviewMarkdown(source: ChatResponseSource): string | undefined {
+  return source.citationContent ?? source.content;
+}
+
+function getCitationPreviewSearchText(source: ChatResponseSource): string | undefined {
+  if (!source.excerpt) return undefined;
+
+  return source.excerpt.endsWith('…')
+    ? source.excerpt.slice(0, -1)
+    : source.excerpt;
 }
 
 export function CitationChip({ refIndex, source, isHighlighted, onClick }: CitationChipProps) {
@@ -44,7 +34,7 @@ export function CitationChip({ refIndex, source, isHighlighted, onClick }: Citat
         'align-super',
         isHighlighted
           ? 'bg-primary text-primary-foreground'
-          : 'bg-primary/15 text-primary hover:bg-primary/25',
+          : 'bg-primary text-primary-foreground hover:brightness-95',
       )}
     >
       {refIndex}
@@ -52,24 +42,14 @@ export function CitationChip({ refIndex, source, isHighlighted, onClick }: Citat
   );
 
   if (!source) return chip;
-
-  if (source.content) {
-    return (
-      <MarkdownPreviewTooltip
-        markdown={source.content}
-        searchText={source.excerpt}
-      >
-        {chip}
-      </MarkdownPreviewTooltip>
-    );
-  }
-
+  const markdown = getCitationPreviewMarkdown(source);
+  if (!markdown) return chip;
   return (
-    <Tooltip
-      content={<SourceTooltipContent refIndex={refIndex} source={source} />}
-      maxWidth="280px"
+    <MarkdownPreviewTooltip
+      markdown={markdown}
+      searchText={getCitationPreviewSearchText(source)}
     >
       {chip}
-    </Tooltip>
+    </MarkdownPreviewTooltip>
   );
 }

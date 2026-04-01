@@ -17,7 +17,7 @@ export interface ChatResponseSource {
   score: number;
   excerpt?: string;
   pageNumber?: number;
-  content?: string;
+  citationContent?: string;
 }
 
 export function createChatResponseEvent(

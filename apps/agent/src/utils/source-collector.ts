@@ -11,35 +11,27 @@ interface CollectedSearchResult {
 }
 
 const MAX_EXCERPT_CHARS = 400;
-const MIN_RELEVANCE_SCORE = 0.5;
+const MIN_RELEVANCE_SCORE = 0;
 
 export class SourceCollector {
   private results: CollectedSearchResult[] = [];
 
   collect(output: unknown): void {
     if (!output || typeof output !== 'object') return;
-    const payload = output as { results?: CollectedSearchResult[] };
-    if (!Array.isArray(payload.results)) return;
+    const payload = output as {
+      results?: CollectedSearchResult[];
+      _sourceChunks?: CollectedSearchResult[];
+    };
+    const results = Array.isArray(payload._sourceChunks)
+      ? payload._sourceChunks
+      : Array.isArray(payload.results)
+        ? payload.results
+        : [];
+    if (results.length === 0) return;
 
-    for (const r of payload.results) {
+    for (const r of results) {
       if (r.fileId && r.fileName != null && r.score != null) {
         this.results.push(r);
-      }
-    }
-  }
-
-  collectFromReadFile(output: unknown): void {
-    if (!output || typeof output !== 'object') return;
-    const payload = output as { _sourceChunks?: CollectedSearchResult[] };
-    if (!Array.isArray(payload._sourceChunks)) return;
-
-    for (const c of payload._sourceChunks) {
-      if (c.fileId && c.fileName != null) {
-        this.results.push({
-          ...c,
-          score: c.score > 0 ? c.score : 1.0,
-          metadata: c.metadata ?? {},
-        });
       }
     }
   }
@@ -53,11 +45,11 @@ export class SourceCollector {
       score: number;
       excerpt?: string;
       pageNumber?: number;
-      content?: string;
+      citationContent?: string;
     }> = [];
 
     for (const r of this.results) {
-      if (r.score < MIN_RELEVANCE_SCORE) continue;
+      if (!Number.isFinite(r.score) || r.score < MIN_RELEVANCE_SCORE) continue;
 
       const key = `${r.fileId}:${r.chunkIndex}`;
       const existing = seen.get(key);
@@ -82,7 +74,7 @@ export class SourceCollector {
           typeof r.metadata?.pageNumber === 'number'
             ? r.metadata.pageNumber
             : undefined,
-        content: r.content || undefined,
+        citationContent: r.content || undefined,
       };
 
       deduped.push(entry);
@@ -104,11 +96,12 @@ export function createCollectorHooks(
   return {
     ...existingHooks,
     onToolEnd(args) {
-      if (args.tool.name === 'searchFiles' && args.output && !args.error) {
+      if (
+        (args.tool.name === 'searchFiles' || args.tool.name === 'readFile') &&
+        args.output &&
+        !args.error
+      ) {
         collector.collect(args.output);
-      }
-      if (args.tool.name === 'readFile' && args.output && !args.error) {
-        collector.collectFromReadFile(args.output);
       }
       return existingHooks?.onToolEnd?.(args);
     },

@@ -24,6 +24,17 @@ function truncateResults(results: SearchResult[]) {
   }));
 }
 
+function collectSourceChunks(results: SearchResult[]) {
+  return results.map((r) => ({
+    fileId: r.fileId,
+    fileName: r.fileName,
+    chunkIndex: r.chunkIndex,
+    content: r.content,
+    score: r.score,
+    metadata: r.metadata ?? {},
+  }));
+}
+
 export const searchFilesTool = createTool({
   name: 'searchFiles',
   description:
@@ -58,6 +69,7 @@ export const searchFilesTool = createTool({
       return {
         results: truncateResults(results),
         query: input.query,
+        _sourceChunks: collectSourceChunks(results),
       };
     } catch (error) {
       if (error instanceof AgentProcessingError) throw error;
