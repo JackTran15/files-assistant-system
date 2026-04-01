@@ -5,11 +5,12 @@ import { ChatStreamController } from './chat-stream.controller';
 import { ChatService } from './chat.service';
 import { ConversationEntity } from './entities/conversation.entity';
 import { MessageEntity } from './entities/message.entity';
+import { FileEntity } from '../files/entities/file.entity';
 import { KafkaModule } from '../kafka/kafka.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ConversationEntity, MessageEntity]),
+    TypeOrmModule.forFeature([ConversationEntity, MessageEntity, FileEntity]),
     forwardRef(() => KafkaModule),
   ],
   controllers: [ChatController, ChatStreamController],

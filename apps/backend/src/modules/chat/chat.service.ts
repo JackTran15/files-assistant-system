@@ -1,12 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In, Not } from 'typeorm';
 import { Subject, Observable } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 import { ConversationEntity } from './entities/conversation.entity';
 import { MessageEntity } from './entities/message.entity';
+import { FileEntity } from '../files/entities/file.entity';
 import { ChatMessageDto } from './dto/chat-message.dto';
-import { ChatRole } from '@files-assistant/core';
+import { ChatRole, FileStatus } from '@files-assistant/core';
 import { KafkaProducerService } from '../kafka/kafka.producer';
 import {
   createChatRequestEvent,
@@ -26,12 +27,26 @@ export class ChatService {
     private readonly conversationRepo: Repository<ConversationEntity>,
     @InjectRepository(MessageEntity)
     private readonly messageRepo: Repository<MessageEntity>,
+    @InjectRepository(FileEntity)
+    private readonly fileRepo: Repository<FileEntity>,
     private readonly kafkaProducer: KafkaProducerService,
   ) {}
 
   async sendMessage(
     dto: ChatMessageDto,
   ): Promise<{ correlationId: string; conversationId: string }> {
+    if (dto.fileIds?.length) {
+      const nonReady = await this.fileRepo.find({
+        where: { id: In(dto.fileIds), status: Not(FileStatus.READY) },
+        select: ['id', 'name', 'status'],
+      });
+      if (nonReady.length > 0) {
+        throw new BadRequestException(
+          `Files not ready for chat: ${nonReady.map((f) => `${f.name} (${f.status})`).join(', ')}`,
+        );
+      }
+    }
+
     let conversationId = dto.conversationId;
 
     if (!conversationId) {

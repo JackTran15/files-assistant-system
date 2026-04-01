@@ -47,6 +47,7 @@ export function FileItemRow({ file }: FileItemProps) {
   const isSelected = selectedFileIds.has(file.id);
   const config = statusConfig[file.status];
   const isReady = file.status === FileStatus.READY;
+  const isProcessing = file.status === FileStatus.PROCESSING;
 
   return (
     <div
@@ -74,13 +75,25 @@ export function FileItemRow({ file }: FileItemProps) {
       >
         {config?.label}
       </Badge>
-      <button
-        onClick={() => removeFile(file.id)}
-        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
-        aria-label={`Delete ${file.name}`}
+      <Tooltip
+        content={
+          isProcessing ? 'Cannot delete while processing' : `Delete ${file.name}`
+        }
       >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
+        <button
+          onClick={() => removeFile(file.id)}
+          disabled={isProcessing}
+          className={cn(
+            'p-0.5 rounded transition-opacity',
+            isProcessing
+              ? 'opacity-30 cursor-not-allowed'
+              : 'opacity-0 group-hover:opacity-100 hover:bg-destructive/10 text-muted-foreground hover:text-destructive',
+          )}
+          aria-label={`Delete ${file.name}`}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
     </div>
   );
 }

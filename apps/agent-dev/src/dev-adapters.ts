@@ -4,6 +4,8 @@ import {
   SearchPort,
   EmbeddingPort,
   ChunkMetadata,
+  ParentChunkData,
+  ChildChunkData,
 } from '@files-assistant/core';
 
 export class StubSearchAdapter implements SearchPort {
@@ -58,6 +60,22 @@ export class StubSearchAdapter implements SearchPort {
       },
     ].slice(0, limit);
   }
+
+  async getChildChunks(
+    fileId: string,
+    _tenantId: string,
+  ): Promise<SearchResult[]> {
+    return [
+      {
+        fileId,
+        fileName: 'quarterly-report-q4.pdf',
+        chunkIndex: 0,
+        content: 'Stub child chunk content for dev mode.',
+        score: 0,
+        metadata: { startOffset: 0, endOffset: 40 },
+      },
+    ];
+  }
 }
 
 export class StubEmbeddingAdapter implements EmbeddingPort {
@@ -68,6 +86,17 @@ export class StubEmbeddingAdapter implements EmbeddingPort {
   ): Promise<EmbeddingResult> {
     return {
       vectorsStored: chunks.length,
+      collectionName: 'StubCollection',
+    };
+  }
+
+  async embedAndStoreHierarchical(
+    parents: ParentChunkData[],
+    children: ChildChunkData[],
+    _tenantId: string,
+  ): Promise<EmbeddingResult> {
+    return {
+      vectorsStored: parents.length + children.length,
       collectionName: 'StubCollection',
     };
   }

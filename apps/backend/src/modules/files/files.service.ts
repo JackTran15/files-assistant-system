@@ -1,5 +1,5 @@
 import 'multer';
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Subject, Observable } from 'rxjs';
@@ -92,7 +92,7 @@ export class FilesService {
     if (file) {
       const allowed = VALID_TRANSITIONS[file.status] ?? [];
       if (!allowed.includes(status)) {
-        this.logger.warn(
+        throw new ConflictException(
           `Invalid status transition for file ${fileId}: ${file.status} → ${status}`,
         );
       }
@@ -173,8 +173,20 @@ export class FilesService {
     return file;
   }
 
+  private static readonly NON_DELETABLE_STATUSES: FileStatus[] = [
+    FileStatus.PROCESSING,
+    FileStatus.EXTRACTING,
+    FileStatus.EXTRACTED,
+    FileStatus.EMBEDDING,
+  ];
+
   async remove(id: string): Promise<void> {
     const file = await this.findOne(id);
+    if (FilesService.NON_DELETABLE_STATUSES.includes(file.status)) {
+      throw new ConflictException(
+        `Cannot delete file while it is ${file.status}`,
+      );
+    }
     await this.chunkRepo.delete({ fileId: file.id });
     await this.fileRepo.remove(file);
   }

@@ -1,0 +1,21 @@
+---
+description: Always use Mermaid UML for diagrams and charts in documentation
+globs: "**/*.md"
+alwaysApply: false
+---
+
+# Documentation Diagrams
+
+Always use Mermaid UML syntax for diagrams and charts in markdown files. Never use ASCII art or box-drawing characters.
+
+```markdown
+<!-- BAD: ASCII art -->
+┌─────────┐       ┌─────────┐
+│ Service A │ ───► │ Service B │
+└─────────┘       └─────────┘
+
+<!-- GOOD: Mermaid -->
+```mermaid
+graph LR
+    A[Service A] --> B[Service B]
+```

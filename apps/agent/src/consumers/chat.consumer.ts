@@ -30,6 +30,12 @@ export class ChatConsumer {
       `Chat request: ${event.correlationId} - "${event.message.slice(0, 50)}..."`,
     );
 
+    if (event.fileIds?.length) {
+      this.logger.log(
+        `Chat request ${event.correlationId} includes ${event.fileIds.length} file(s): [${event.fileIds.join(', ')}]`,
+      );
+    }
+
     const stream = this.grpcResponseAdapter.createStream(
       event.correlationId,
       event.conversationId,

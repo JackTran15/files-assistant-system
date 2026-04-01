@@ -30,7 +30,7 @@ const stubEmbedding = new StubEmbeddingAdapter();
 
 setHybridSearch(stubSearch);
 setKeywordSearch(stubSearch);
-setGetFileContent(stubSearch);
+setGetFileContent(stubSearch as any);
 setEmbeddingAdapter(stubEmbedding);
 
 const searchModel =

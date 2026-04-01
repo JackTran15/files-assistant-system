@@ -91,6 +91,9 @@ export const useFilesStore = create<FilesState>((set, get) => ({
   },
 
   removeFile: async (fileId) => {
+    const file = get().files.find((f) => f.id === fileId);
+    if (file?.status === 'processing') return;
+
     try {
       await api.files.delete(fileId);
       set((state) => ({
