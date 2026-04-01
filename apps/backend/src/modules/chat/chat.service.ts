@@ -14,6 +14,13 @@ import {
   ChatResponseEvent,
 } from '@files-assistant/events';
 
+const COMPLETE_THINKING_RE = /<thinking>[\s\S]*?<\/thinking>\s*/g;
+const PARTIAL_THINKING_RE = /<thinking>[\s\S]*$/;
+
+function stripThinkingBlocks(text: string): string {
+  return text.replace(COMPLETE_THINKING_RE, '').replace(PARTIAL_THINKING_RE, '').trim();
+}
+
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
@@ -112,7 +119,7 @@ export class ChatService {
 
     if (event.done) {
       const chunks = this.chunkAccumulator.get(event.correlationId) ?? [];
-      const fullContent = chunks.join('');
+      const fullContent = stripThinkingBlocks(chunks.join(''));
 
       try {
         await this.messageRepo.save(
@@ -152,7 +159,8 @@ export class ChatService {
       timestamp: new Date().toISOString(),
     });
 
-    if (partialContent.length > 0) {
+    const cleanedPartial = stripThinkingBlocks(partialContent);
+    if (cleanedPartial.length > 0) {
       const conversationId = this.correlationConversationMap.get(correlationId);
       if (conversationId) {
         try {
@@ -160,7 +168,7 @@ export class ChatService {
             this.messageRepo.create({
               conversationId,
               role: ChatRole.ASSISTANT,
-              content: partialContent,
+              content: cleanedPartial,
             }),
           );
         } catch (err) {

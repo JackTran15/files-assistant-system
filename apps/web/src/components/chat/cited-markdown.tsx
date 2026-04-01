@@ -18,6 +18,7 @@ interface CitedMarkdownProps {
 }
 
 const CITATION_RE = /\[(\d+)\]/g;
+const HAS_CITATION_RE = /\[(\d+)\]/;
 
 let chipKey = 0;
 
@@ -35,8 +36,6 @@ function injectCitations(
     if (refIndex < 1 || refIndex > sources.length) continue;
 
     const source = sources[refIndex - 1];
-    if (source.score < 0.5) continue;
-
     if (match.index > lastIndex) {
       parts.push(text.slice(lastIndex, match.index));
     }
@@ -138,7 +137,7 @@ export function CitedMarkdown({
   onCitationClick,
 }: CitedMarkdownProps) {
   const hasCitations = useMemo(
-    () => sources?.length && CITATION_RE.test(content),
+    () => Boolean(sources?.length) && HAS_CITATION_RE.test(content),
     [content, sources],
   );
 

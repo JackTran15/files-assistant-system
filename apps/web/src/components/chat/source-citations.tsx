@@ -39,7 +39,7 @@ export function SourceCitations({
     }
   }, [highlightedRef]);
 
-  const relevantSources = sources?.filter((s) => s.score >= 0.5) ?? [];
+  const relevantSources = sources ?? [];
 
   if (relevantSources.length === 0) return null;
 

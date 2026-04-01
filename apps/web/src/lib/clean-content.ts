@@ -1,25 +1,11 @@
 const COMPLETE_THINKING_RE = /<thinking>[\s\S]*?<\/thinking>\s*/g;
 const PARTIAL_THINKING_RE = /<thinking>[\s\S]*$/;
-
-const NARRATION_VERBS =
-  'search|look|check|find|scan|review|read|try|analy[zs]e|examine|explore|investigate';
-
-/** Matches a single narration sentence anywhere in text. */
-const NARRATION_SENTENCE_RE = new RegExp(
-  `(?:(?:I(?:'|')ll|I will|Let me)\\s+(?:${NARRATION_VERBS})[^.!?\\n]{0,200}[.!?])\\s*`,
-  'gi',
-);
-
-/** Anchored version for stripping only leading narration (finalized content). */
-const LEADING_NARRATION_RE = new RegExp(
-  `^\\s*(?:(?:(?:I(?:'|')ll|I will)\\s+(?:${NARRATION_VERBS})[^.!?\\[\\]\\n]{0,200}[.!?:]\\s*)|(?:Let me\\s+(?:${NARRATION_VERBS})[^.!?\\[\\]\\n]{0,200}[.!?:]\\s*))+`,
-  'i',
-);
+const LAST_THINKING_CONTENT_RE = /<thinking>([\s\S]*?)<\/thinking>/g;
 
 /**
- * Remove `<thinking>...</thinking>` blocks from streamed content.
- * Handles both fully closed blocks and a trailing open block
- * that hasn't received its closing tag yet (streaming case).
+ * Remove `<thinking>...</thinking>` blocks from content.
+ * In streaming mode, also strips a trailing unclosed `<thinking>...` block.
+ * In finalize mode, strips both complete and trailing partial blocks.
  */
 export function stripThinkingBlocks(
   text: string,
@@ -33,54 +19,55 @@ export function stripThinkingBlocks(
 }
 
 /**
- * Remove procedural lead-ins like:
- * "I'll search..." / "Let me search..."
- * from the start of the assistant response.
+ * Extract the content of the latest `<thinking>` block for display
+ * in the thinking indicator. Returns null if no thinking block exists.
  */
-export function stripProcessLeadIn(text: string): string {
-  return text.replace(LEADING_NARRATION_RE, '').trimStart();
+function extractLatestThinking(text: string): string | null {
+  const withoutComplete = text.replace(COMPLETE_THINKING_RE, '');
+  const partialMatch = PARTIAL_THINKING_RE.exec(withoutComplete);
+  if (partialMatch) {
+    const inner = partialMatch[0].replace(/^<thinking>\s*/, '').trim();
+    if (inner) return inner;
+  }
+
+  let latest: string | null = null;
+  const re = new RegExp(LAST_THINKING_CONTENT_RE.source, LAST_THINKING_CONTENT_RE.flags);
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text)) !== null) {
+    latest = match[1].trim();
+  }
+
+  return latest || null;
 }
 
 /**
- * Extract the latest thinking narration and the displayable content
- * from streamed text. During streaming, narration sentences are stripped
- * globally and the most recent one is returned for the thinking indicator.
+ * Extract the latest thinking text and displayable content from streamed text.
+ * Strict tag-only mode: only `<thinking>...</thinking>` blocks are treated as thinking.
  */
 export function extractThinkingAndContent(
   text: string,
   isStreaming = false,
 ): { thinking: string | null; content: string } {
-  const withoutThinkingTags = stripThinkingBlocks(text, isStreaming);
-
   if (!isStreaming) {
-    return {
-      thinking: null,
-      content: stripProcessLeadIn(withoutThinkingTags),
-    };
+    const content = stripThinkingBlocks(text, false)
+      .replace(PARTIAL_THINKING_RE, '')
+      .trim();
+    return { thinking: null, content };
   }
 
-  let latestNarration: string | null = null;
-  let match: RegExpExecArray | null;
-  const re = new RegExp(NARRATION_SENTENCE_RE.source, NARRATION_SENTENCE_RE.flags);
-  while ((match = re.exec(withoutThinkingTags)) !== null) {
-    latestNarration = match[0].trim();
-  }
+  const thinking = extractLatestThinking(text);
+  const content = stripThinkingBlocks(text, true).trim();
 
-  const content = withoutThinkingTags.replace(NARRATION_SENTENCE_RE, '').trimStart();
-
-  if (!content && latestNarration) {
-    return { thinking: latestNarration, content: '' };
-  }
-
-  return { thinking: latestNarration, content };
+  return { thinking, content };
 }
 
 /**
- * Full response cleanup for display.
+ * Full response cleanup for display. Strips all thinking blocks
+ * (complete and partial) from content.
  */
-export function cleanAssistantContent(
-  text: string,
-  isStreaming = false,
-): string {
-  return stripProcessLeadIn(stripThinkingBlocks(text, isStreaming));
+export function cleanAssistantContent(text: string): string {
+  return text
+    .replace(COMPLETE_THINKING_RE, '')
+    .replace(PARTIAL_THINKING_RE, '')
+    .trim();
 }

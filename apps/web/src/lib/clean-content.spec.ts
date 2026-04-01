@@ -1,6 +1,5 @@
 import {
   cleanAssistantContent,
-  stripProcessLeadIn,
   stripThinkingBlocks,
   extractThinkingAndContent,
 } from './clean-content';
@@ -58,63 +57,70 @@ Here is the answer.`;
   });
 });
 
-describe('stripProcessLeadIn', () => {
-  it('should remove leading "I will search" narration', () => {
-    const input =
-      "I'll search the selected file first. The answer is that Jack is not mentioned.";
-    expect(stripProcessLeadIn(input)).toBe(
-      'The answer is that Jack is not mentioned.',
-    );
-  });
-
-  it('should remove multiple lead-in narration sentences', () => {
-    const input =
-      'I will search the selected file. Let me search more specifically: Final answer [1].';
-    expect(stripProcessLeadIn(input)).toBe('Final answer [1].');
-  });
-
-  it('should not alter a clean answer', () => {
-    const input = 'Next.js supports SSR and SSG [1].';
-    expect(stripProcessLeadIn(input)).toBe(input);
-  });
-});
-
 describe('cleanAssistantContent', () => {
-  it('should strip both thinking blocks and process lead-in', () => {
+  it('should strip complete thinking blocks', () => {
     const input =
-      "<thinking>internal</thinking>I'll search now. Let me check quickly: Final answer [1].";
+      '<thinking>internal</thinking>Final answer [1].';
     expect(cleanAssistantContent(input)).toBe('Final answer [1].');
+  });
+
+  it('should strip trailing partial thinking block', () => {
+    const input = 'Answer so far <thinking>unfinished reasoning';
+    expect(cleanAssistantContent(input)).toBe('Answer so far');
+  });
+
+  it('should strip both complete and partial blocks', () => {
+    const input =
+      '<thinking>step 1</thinking>Content. <thinking>step 2 unfinished';
+    expect(cleanAssistantContent(input)).toBe('Content.');
+  });
+
+  it('should not strip untagged narration', () => {
+    const input = "I'll search the files. Here is the answer.";
+    expect(cleanAssistantContent(input)).toBe(input);
+  });
+
+  it('should handle content with no thinking blocks', () => {
+    const input = 'Clean content only.';
+    expect(cleanAssistantContent(input)).toBe(input);
   });
 });
 
 describe('extractThinkingAndContent', () => {
-  it('should extract latest narration and strip all narrations during streaming', () => {
+  it('should extract latest thinking block content during streaming', () => {
     const input =
-      "Let me try a different search approach to find information about Jack's hobbies." +
-      "Let me read the full content of Jack's resume." +
-      "Let me search in the other file to see if there's personal information.";
-
+      '<thinking>first thought</thinking>Part one. <thinking>second thought</thinking>Part two.';
     const result = extractThinkingAndContent(input, true);
 
-    expect(result.thinking).toBe(
-      "Let me search in the other file to see if there's personal information.",
-    );
+    expect(result.thinking).toBe('second thought');
+    expect(result.content).toBe('Part one. Part two.');
+  });
+
+  it('should extract partial thinking block content during streaming', () => {
+    const input = '<thinking>completed</thinking>Answer. <thinking>still thinking about this';
+    const result = extractThinkingAndContent(input, true);
+
+    expect(result.thinking).toBe('still thinking about this');
+    expect(result.content).toBe('Answer.');
+  });
+
+  it('should return only thinking when no content yet (streaming)', () => {
+    const input = '<thinking>I need to search the files for information</thinking>';
+    const result = extractThinkingAndContent(input, true);
+
+    expect(result.thinking).toBe('I need to search the files for information');
     expect(result.content).toBe('');
   });
 
-  it('should return content separately from narration', () => {
-    const input =
-      "Let me search for Jack's skills. Based on the resume, Jack knows TypeScript and React.";
-
+  it('should return only thinking for partial block with no content (streaming)', () => {
+    const input = '<thinking>searching for relevant information';
     const result = extractThinkingAndContent(input, true);
 
-    expect(result.thinking).toBe("Let me search for Jack's skills.");
-    expect(result.content).toBe(
-      'Based on the resume, Jack knows TypeScript and React.',
-    );
+    expect(result.thinking).toBe('searching for relevant information');
+    expect(result.content).toBe('');
   });
 
-  it('should return null thinking when no narration found', () => {
+  it('should return null thinking when no thinking blocks exist (streaming)', () => {
     const input = 'Based on the documents, here are the key points.';
     const result = extractThinkingAndContent(input, true);
 
@@ -122,40 +128,49 @@ describe('extractThinkingAndContent', () => {
     expect(result.content).toBe(input);
   });
 
-  it('should handle thinking tags + narration together', () => {
-    const input =
-      "<thinking>reasoning</thinking>Let me check the file. Here's the answer.";
-
+  it('should not treat untagged narration as thinking (streaming)', () => {
+    const input = "I'll search the files. Here is the answer.";
     const result = extractThinkingAndContent(input, true);
 
-    expect(result.thinking).toBe('Let me check the file.');
-    expect(result.content).toBe("Here's the answer.");
+    expect(result.thinking).toBeNull();
+    expect(result.content).toBe(input);
   });
 
-  it('should strip narration from finalized (non-streaming) content', () => {
+  it('should return null thinking in finalized (non-streaming) mode', () => {
     const input =
-      "Let me search for the data. Here's what I found in the documents [1].";
+      '<thinking>reasoning</thinking>The final answer is here.';
     const result = extractThinkingAndContent(input, false);
 
     expect(result.thinking).toBeNull();
-    expect(result.content).toBe(
-      "Here's what I found in the documents [1].",
+    expect(result.content).toBe('The final answer is here.');
+  });
+
+  it('should strip trailing partial in finalized mode', () => {
+    const input = 'Answer <thinking>leftover partial';
+    const result = extractThinkingAndContent(input, false);
+
+    expect(result.thinking).toBeNull();
+    expect(result.content).toBe('Answer');
+  });
+
+  it('should handle multiline thinking blocks during streaming', () => {
+    const input = `<thinking>
+Let me analyze this document.
+I see several key sections.
+</thinking>
+The document contains three main sections.`;
+    const result = extractThinkingAndContent(input, true);
+
+    expect(result.thinking).toBe(
+      'Let me analyze this document.\nI see several key sections.',
     );
+    expect(result.content).toBe('The document contains three main sections.');
   });
 
-  it('should handle "I will read" narration pattern', () => {
-    const input = "I'll read the document to find relevant sections. The skills section mentions Python.";
+  it('should handle empty thinking block', () => {
+    const input = '<thinking></thinking>Answer.';
     const result = extractThinkingAndContent(input, true);
 
-    expect(result.thinking).toBe("I'll read the document to find relevant sections.");
-    expect(result.content).toBe('The skills section mentions Python.');
-  });
-
-  it('should show thinking when only narration exists (no content yet)', () => {
-    const input = "Let me search the uploaded files for information about hobbies.";
-    const result = extractThinkingAndContent(input, true);
-
-    expect(result.thinking).toBe(input);
-    expect(result.content).toBe('');
+    expect(result.content).toBe('Answer.');
   });
 });
