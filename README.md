@@ -1,96 +1,136 @@
-# FilesAssistant
+# Files Assistant
 
-<a alt="Nx logo" href="https://nx.dev" target="_blank" rel="noreferrer"><img src="https://raw.githubusercontent.com/nrwl/nx/master/images/nx-logo.png" width="45"></a>
+AI-powered files assistant that enables semantic search and Q&A over uploaded documents. Upload files (PDF, DOCX, plain text), the system extracts, chunks, and embeds the content, then a multi-agent AI system answers natural language questions grounded in the retrieved context (RAG).
 
-✨ Your new, shiny [Nx workspace](https://nx.dev) is ready ✨.
+## Architecture
 
-[Learn more about this workspace setup and its capabilities](https://nx.dev/getting-started/intro#learn-nx?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects) or run `npx nx graph` to visually explore what was created. Now, let's get you up to speed!
+Two independent services communicating through Redpanda (Kafka):
 
-## Run tasks
+- **Backend** (`apps/backend`) -- NestJS CRUD API, Multer uploads, Swagger docs, SSE streaming
+- **Agent** (`apps/agent`) -- VoltAgent multi-agent system (supervisor + 4 sub-agents), Kafka consumer
+- **Agent Dev** (`apps/agent-dev`) -- Standalone VoltAgent dev server with VoltOps dashboard
 
-To run tasks with Nx use:
+Shared libraries:
 
-```sh
-npx nx <target> <project-name>
+- `libs/core` -- Pure TypeScript: ports, types, extraction, chunking
+- `libs/events` -- Kafka event schemas (shared between services)
+- `libs/weaviate` -- Weaviate client wrapper and collection schemas
+
+## Prerequisites
+
+- Node.js 22+
+- pnpm 10+
+- Docker & Docker Compose
+
+## Quick Start
+
+```bash
+# Install dependencies
+pnpm install
+
+# Start infrastructure (PostgreSQL, Weaviate, Redpanda)
+docker compose up -d
+
+# Copy environment variables
+cp .env.example .env
+# Edit .env with your OPENAI_API_KEY
+
+# Start backend API (:3000)
+pnpm exec nx serve backend
+
+# Start agent service (Kafka consumer)
+pnpm exec nx serve agent
+
+# Start agent dev server with VoltOps dashboard (:3141)
+pnpm exec nx serve agent-dev
 ```
 
-For example:
+## Development Commands
 
-```sh
-npx nx build myproject
+```bash
+# Serve
+pnpm exec nx serve backend              # NestJS API (:3000)
+pnpm exec nx serve agent                # Kafka consumer agent
+pnpm exec nx serve agent-dev            # VoltAgent + VoltOps (:3141)
+
+# Build
+pnpm exec nx build backend --configuration=production
+pnpm exec nx build agent --configuration=production
+
+# Test
+pnpm exec nx test core                  # libs unit tests
+pnpm exec nx test events                # event schema tests
+pnpm exec nx test backend               # backend tests
+pnpm exec nx test agent                 # agent tests
+
+# Affected (CI)
+pnpm exec nx affected -t lint,test,build
+
+# Dependency graph
+pnpm exec nx graph
 ```
 
-These targets are either [inferred automatically](https://nx.dev/concepts/inferred-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) or defined in the `project.json` or `package.json` files.
+## API Documentation
 
-[More about running tasks in the docs &raquo;](https://nx.dev/features/run-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+When the backend is running, Swagger UI is available at:
 
-## Add new projects
-
-While you could add new projects to your workspace manually, you might want to leverage [Nx plugins](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) and their [code generation](https://nx.dev/features/generate-code?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) feature.
-
-To install a new plugin you can use the `nx add` command. Here's an example of adding the React plugin:
-```sh
-npx nx add @nx/react
+```
+http://localhost:3000/api/docs
 ```
 
-Use the plugin's generator to create new projects. For example, to create a new React app or library:
+### Endpoints
 
-```sh
-# Generate an app
-npx nx g @nx/react:app demo
+| Method   | Path                    | Description                        |
+|----------|-------------------------|------------------------------------|
+| `POST`   | `/api/files/upload`     | Upload a file for processing       |
+| `GET`    | `/api/files`            | List files (paginated)             |
+| `GET`    | `/api/files/:id`        | File details + status              |
+| `DELETE` | `/api/files/:id`        | Delete file + vectors              |
+| `GET`    | `/api/files/:id/events` | SSE: processing status             |
+| `POST`   | `/api/chat`             | Send chat message                  |
+| `GET`    | `/api/chat/stream/:id`  | SSE: stream response tokens        |
+| `GET`    | `/api/chat/history`     | Conversation history               |
+| `GET`    | `/api/health`           | Liveness probe                     |
+| `GET`    | `/api/ready`            | Readiness probe                    |
 
-# Generate a library
-npx nx g @nx/react:lib some-lib
+## Infrastructure
+
+```bash
+docker compose up -d     # Start all services
+docker compose down      # Stop all services
+docker compose logs -f   # View logs
 ```
 
-You can use `npx nx list` to get a list of installed plugins. Then, run `npx nx list <plugin-name>` to learn about more specific capabilities of a particular plugin. Alternatively, [install Nx Console](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) to browse plugins and generators in your IDE.
+| Service           | Port  | Dashboard            |
+|-------------------|-------|----------------------|
+| PostgreSQL        | 5432  | --                   |
+| Weaviate          | 8080  | --                   |
+| Redpanda (Kafka)  | 19092 | --                   |
+| Redpanda Console  | 8888  | http://localhost:8888|
 
-[Learn more about Nx plugins &raquo;](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) | [Browse the plugin registry &raquo;](https://nx.dev/plugin-registry?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+## Project Structure
 
-## Set up CI!
-
-### Step 1
-
-To connect to Nx Cloud, run the following command:
-
-```sh
-npx nx connect
+```
+files-assistant/
+  apps/
+    backend/          NestJS CRUD API + Kafka producer
+    agent/            VoltAgent multi-agent + Kafka consumer
+    agent-dev/        VoltAgent standalone dev server
+  libs/
+    core/             Pure TS: ports, types, extraction, chunking
+    events/           Kafka event schemas
+    weaviate/         Weaviate client wrapper
 ```
 
-Connecting to Nx Cloud ensures a [fast and scalable CI](https://nx.dev/ci/intro/why-nx-cloud?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects) pipeline. It includes features such as:
+## Tech Stack
 
-- [Remote caching](https://nx.dev/ci/features/remote-cache?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Task distribution across multiple machines](https://nx.dev/ci/features/distribute-task-execution?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Automated e2e test splitting](https://nx.dev/ci/features/split-e2e-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Task flakiness detection and rerunning](https://nx.dev/ci/features/flaky-tasks?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-### Step 2
-
-Use the following command to configure a CI workflow for your workspace:
-
-```sh
-npx nx g ci-workflow
-```
-
-[Learn more about Nx on CI](https://nx.dev/ci/intro/ci-with-nx#ready-get-started-with-your-provider?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Install Nx Console
-
-Nx Console is an editor extension that enriches your developer experience. It lets you run tasks, generate code, and improves code autocompletion in your IDE. It is available for VSCode and IntelliJ.
-
-[Install Nx Console &raquo;](https://nx.dev/getting-started/editor-setup?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-## Useful links
-
-Learn more:
-
-- [Learn more about this workspace setup](https://nx.dev/getting-started/intro#learn-nx?utm_source=nx_project&amp;utm_medium=readme&amp;utm_campaign=nx_projects)
-- [Learn about Nx on CI](https://nx.dev/ci/intro/ci-with-nx?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [Releasing Packages with Nx release](https://nx.dev/features/manage-releases?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-- [What are Nx plugins?](https://nx.dev/concepts/nx-plugins?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
-
-And join the Nx community:
-- [Discord](https://go.nx.dev/community)
-- [Follow us on X](https://twitter.com/nxdevtools) or [LinkedIn](https://www.linkedin.com/company/nrwl)
-- [Our Youtube channel](https://www.youtube.com/@nxdevtools)
-- [Our blog](https://nx.dev/blog?utm_source=nx_project&utm_medium=readme&utm_campaign=nx_projects)
+| Layer              | Technology                           |
+|--------------------|--------------------------------------|
+| Monorepo           | Nx                                   |
+| Backend            | NestJS, TypeORM, Swagger, Multer     |
+| Agent              | VoltAgent, Zod                       |
+| Vector DB          | Weaviate                             |
+| Relational DB      | PostgreSQL                           |
+| Event Streaming    | Redpanda (Kafka-compatible)          |
+| Document Processing| pdf-parse, mammoth                   |
+| LLM                | OpenAI (via Vercel AI SDK)           |

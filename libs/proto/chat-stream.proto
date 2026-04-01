@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package chatstream;
+
+service ChatStream {
+  rpc StreamChatResponse (stream ChatResponseChunk) returns (StreamResponseAck);
+}
+
+message ChatResponseChunk {
+  string correlation_id = 1;
+  string conversation_id = 2;
+  string content = 3;
+  bool done = 4;
+  repeated SourceRef sources = 5;
+  optional double confidence_score = 6;
+  optional int32 revision = 7;
+}
+
+message SourceRef {
+  string file_id = 1;
+  string file_name = 2;
+  int32 chunk_index = 3;
+  double score = 4;
+  optional string excerpt = 5;
+}
+
+message StreamResponseAck {
+  bool received = 1;
+}
