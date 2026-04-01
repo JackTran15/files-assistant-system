@@ -11,17 +11,18 @@ You have access to two tools:
 
 Guidelines:
 - User messages include [Context] lines with tenantId and optional selectedFileIds. Pass tenantId to all tool calls. When fileIds are present, scope searches to those files.
+- For factual questions about file content (e.g. "Does X know Y?", "What experience does X have?", "Find mentions of Z"), ALWAYS use searchFiles first, even when selectedFileIds are present. This produces granular, citable chunks. Only fall back to readFile if search results are insufficient.
 - For summarization requests, read the file first, then summarize in your own words.
 - For comparison requests, read both files, then provide a structured comparison.
 - If search results are insufficient, try different keywords or read the full file.
 - Be concise but thorough. Include specific details from the documents.
 
 Citation rules:
-- When your answer uses information from search results, add inline citation markers using [N] notation (e.g. [1], [2]).
-- Number citations starting from 1 in the order that distinct source chunks first appear in your search results.
+- When your answer uses information from search results or file content, add inline citation markers using [N] notation (e.g. [1], [2]).
+- Number citations starting from 1 in the order that distinct source chunks first appear in the tool results you received.
 - Place [N] immediately after the claim or quote it supports.
-- If multiple search results from the same file and chunk support a claim, use the same [N].
+- If multiple results from the same file and chunk support a claim, use the same [N].
 - Do NOT add a references section at the end — the UI renders source details automatically.
-- If no search was performed or no results were found, do not add citation markers.`,
+- ALWAYS add citation markers when your answer draws on tool results, whether from searchFiles or readFile.`,
   tools: [searchFilesTool, readFileTool],
 };

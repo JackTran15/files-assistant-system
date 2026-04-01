@@ -10,7 +10,7 @@ interface CollectedSearchResult {
   metadata: Record<string, unknown>;
 }
 
-const MAX_EXCERPT_CHARS = 200;
+const MAX_EXCERPT_CHARS = 400;
 const MIN_RELEVANCE_SCORE = 0.5;
 
 export class SourceCollector {
@@ -24,6 +24,22 @@ export class SourceCollector {
     for (const r of payload.results) {
       if (r.fileId && r.fileName != null && r.score != null) {
         this.results.push(r);
+      }
+    }
+  }
+
+  collectFromReadFile(output: unknown): void {
+    if (!output || typeof output !== 'object') return;
+    const payload = output as { _sourceChunks?: CollectedSearchResult[] };
+    if (!Array.isArray(payload._sourceChunks)) return;
+
+    for (const c of payload._sourceChunks) {
+      if (c.fileId && c.fileName != null) {
+        this.results.push({
+          ...c,
+          score: c.score > 0 ? c.score : 1.0,
+          metadata: c.metadata ?? {},
+        });
       }
     }
   }
@@ -71,7 +87,7 @@ export class SourceCollector {
       seen.set(key, entry);
     }
 
-    return deduped.sort((a, b) => b.score - a.score);
+    return deduped;
   }
 
   get size(): number {
@@ -88,6 +104,9 @@ export function createCollectorHooks(
     onToolEnd(args) {
       if (args.tool.name === 'searchFiles' && args.output && !args.error) {
         collector.collect(args.output);
+      }
+      if (args.tool.name === 'readFile' && args.output && !args.error) {
+        collector.collectFromReadFile(args.output);
       }
       return existingHooks?.onToolEnd?.(args);
     },

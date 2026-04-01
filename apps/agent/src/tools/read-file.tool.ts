@@ -18,10 +18,17 @@ export function setWeaviateAdapter(adapter: FileChunksReader): void {
   fileChunksReader = adapter;
 }
 
+interface RepresentativeResult {
+  content: string;
+  includedChunks: number;
+  totalChunks: number;
+  selected: SearchResult[];
+}
+
 function selectRepresentativeChunks(
   chunks: SearchResult[],
   budget: number,
-): { content: string; includedChunks: number; totalChunks: number } {
+): RepresentativeResult {
   const totalChars = chunks.reduce((s, c) => s + c.content.length, 0);
 
   if (totalChars <= budget) {
@@ -29,10 +36,11 @@ function selectRepresentativeChunks(
       content: chunks.map((c) => c.content).join(''),
       includedChunks: chunks.length,
       totalChunks: chunks.length,
+      selected: chunks,
     };
   }
 
-  const selected: SearchResult[] = [];
+  const picked: SearchResult[] = [];
   let usedChars = 0;
 
   const step = Math.max(
@@ -46,23 +54,23 @@ function selectRepresentativeChunks(
   for (let i = 0; i < chunks.length; i += step) {
     const chunk = chunks[i];
     if (usedChars + chunk.content.length > budget) break;
-    selected.push(chunk);
+    picked.push(chunk);
     usedChars += chunk.content.length;
   }
 
   const lastChunk = chunks[chunks.length - 1];
   if (
-    selected.length > 0 &&
-    selected[selected.length - 1].chunkIndex !== lastChunk.chunkIndex &&
+    picked.length > 0 &&
+    picked[picked.length - 1].chunkIndex !== lastChunk.chunkIndex &&
     usedChars + lastChunk.content.length <= budget
   ) {
-    selected.push(lastChunk);
+    picked.push(lastChunk);
     usedChars += lastChunk.content.length;
   }
 
   const parts: string[] = [];
   let prevIndex = -1;
-  for (const chunk of selected) {
+  for (const chunk of picked) {
     if (prevIndex >= 0 && chunk.chunkIndex > prevIndex + 1) {
       parts.push(
         `\n[...skipped chunks ${prevIndex + 1}-${chunk.chunkIndex - 1}...]\n`,
@@ -74,8 +82,9 @@ function selectRepresentativeChunks(
 
   return {
     content: parts.join(''),
-    includedChunks: selected.length,
+    includedChunks: picked.length,
     totalChunks: chunks.length,
+    selected: picked,
   };
 }
 
@@ -105,22 +114,35 @@ export const readFileTool = createTool({
       if (chunks.length === 0) {
         return {
           fileId: input.fileId,
+          fileName: '',
           content: '[No content found]',
           includedChunks: 0,
           totalChunks: 0,
           sampled: false,
+          _sourceChunks: [],
         };
       }
 
-      const { content, includedChunks, totalChunks } =
+      const { content, includedChunks, totalChunks, selected } =
         selectRepresentativeChunks(chunks, MAX_CONTENT_CHARS);
+
+      const fileName = chunks[0].fileName ?? '';
 
       return {
         fileId: input.fileId,
+        fileName,
         content,
         includedChunks,
         totalChunks,
         sampled: includedChunks < totalChunks,
+        _sourceChunks: selected.map((c) => ({
+          fileId: c.fileId,
+          fileName: c.fileName,
+          chunkIndex: c.chunkIndex,
+          content: c.content,
+          score: c.score > 0 ? c.score : 1.0,
+          metadata: c.metadata ?? {},
+        })),
       };
     } catch (error) {
       if (error instanceof AgentProcessingError) throw error;
