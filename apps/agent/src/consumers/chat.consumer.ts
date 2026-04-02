@@ -1,4 +1,4 @@
-import { Controller, Inject, Logger } from '@nestjs/common';
+import { Controller, Inject, Logger, Optional } from '@nestjs/common';
 import { EventPattern, Payload } from '@nestjs/microservices';
 import { TOPICS, ChatRequestEvent } from '@files-assistant/events';
 import { GrpcResponseAdapter } from '../adapters/grpc-response.adapter';
@@ -8,6 +8,12 @@ import {
   createCollectorHooks,
 } from '../utils/source-collector';
 import { toolLoggingHooks } from '../hooks/tool-logging.hooks';
+import {
+  buildClaimsFromAnswer,
+  buildEvidence,
+  stripThinkingBlocks,
+  validateAndRepairCitationMapping,
+} from '../utils/citation-mapping';
 
 @Controller()
 export class ChatConsumer {
@@ -17,6 +23,9 @@ export class ChatConsumer {
     private readonly grpcResponseAdapter: GrpcResponseAdapter,
     @Inject('SUPERVISOR_AGENT')
     private readonly supervisorAgent: Agent,
+    @Optional()
+    @Inject('CITATION_AGENT')
+    private readonly citationAgent?: Agent,
   ) {}
 
   private buildEnrichedPrompt(event: ChatRequestEvent): string {
@@ -27,6 +36,32 @@ export class ChatConsumer {
       );
     }
     return [...contextLines, `[User] ${event.message}`].join('\n');
+  }
+
+  private buildCitationRemapPrompt(
+    answer: string,
+    sources: NonNullable<ReturnType<SourceCollector['toStreamSources']>>,
+  ): string {
+    const formattedSources = sources
+      .map((s, i) => {
+        const text = (s.citationContent ?? s.excerpt ?? '').trim();
+        return [
+          `[${i + 1}] ${s.fileName} (fileId=${s.fileId}, chunkIndex=${s.chunkIndex}, score=${s.score.toFixed(3)})`,
+          text ? text : '[EMPTY_SOURCE_TEXT]',
+        ].join('\n');
+      })
+      .join('\n\n');
+
+    return [
+      'Rewrite the answer with better citation mapping using SOURCES.',
+      'Return only rewritten answer text with inline [N] markers.',
+      '',
+      '[ANSWER]',
+      answer,
+      '',
+      '[SOURCES]',
+      formattedSources,
+    ].join('\n');
   }
 
   @EventPattern(TOPICS.CHAT_REQUEST)
@@ -56,17 +91,52 @@ export class ChatConsumer {
         },
       );
 
+      const streamedChunks: string[] = [];
       for await (const chunk of agentResult.textStream) {
+        streamedChunks.push(chunk);
         stream.sendChunk(chunk, false);
       }
 
-      const sources = collector.toStreamSources();
+      const sources = collector.toStreamSources() ?? [];
+      const draftAnswer = stripThinkingBlocks(streamedChunks.join(''));
+      let renderedAnswer = draftAnswer;
+      if (this.citationAgent && sources.length > 0) {
+        try {
+          const remapPrompt = this.buildCitationRemapPrompt(draftAnswer, sources);
+          const remapResult = await this.citationAgent.streamText(remapPrompt);
+          const remappedChunks: string[] = [];
+          for await (const remappedChunk of remapResult.textStream) {
+            remappedChunks.push(remappedChunk);
+          }
+          const remapped = stripThinkingBlocks(remappedChunks.join(''));
+          if (remapped.length > 0) {
+            renderedAnswer = remapped;
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Citation remap failed for ${event.correlationId}; using draft answer`,
+          );
+          this.logger.warn(error instanceof Error ? error.message : String(error));
+        }
+      }
+      const evidence = buildEvidence(sources);
+      const claims = buildClaimsFromAnswer(renderedAnswer, evidence);
+      const mapping = validateAndRepairCitationMapping(claims, evidence);
+      if (mapping.warnings?.length) {
+        this.logger.warn(
+          `Citation mapping warnings for ${event.correlationId}: ${mapping.warnings.join(' | ')}`,
+        );
+      }
       stream.sendChunk('', true, {
-        sources: sources?.length ? sources : undefined,
+        sources: sources.length ? sources : undefined,
+        renderedAnswer,
+        evidence: mapping.evidence.length ? mapping.evidence : undefined,
+        claims: mapping.claims.length ? mapping.claims : undefined,
+        citationWarnings: mapping.warnings,
       });
 
       this.logger.log(
-        `Chat request ${event.correlationId} processed (${sources?.length ?? 0} sources)`,
+        `Chat request ${event.correlationId} processed (${sources.length} sources, ${mapping.claims.length} claims)`,
       );
     } catch (error) {
       stream.sendChunk(

@@ -29,8 +29,10 @@ Guidelines:
 
 Citation rules:
 - When your answer uses information from search results or file content, add inline citation markers using [N] notation (e.g. [1], [2]).
+- Only cite chunks that were actually returned by tool calls in the current turn. Never invent references.
 - Number citations starting from 1 in the order that distinct source chunks first appear in the tool results you received.
 - Place [N] immediately after the claim or quote it supports.
+- Every non-trivial factual claim should have at least one citation marker.
 - If multiple results from the same file and chunk support a claim, use the same [N].
 - Do NOT add a references section at the end — the UI renders source details automatically.
 - ALWAYS add citation markers when your answer draws on tool results, whether from searchFiles, readChunk, or readFile.`,

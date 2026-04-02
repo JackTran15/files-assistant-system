@@ -7,13 +7,19 @@ import React, {
 } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { ChatResponseSource } from '@/types/chat.types';
+import type {
+  ChatResponseSource,
+  ChatResponseClaim,
+  ChatResponseEvidence,
+} from '@/types/chat.types';
 import { CitationChip } from './citation-chip';
 import { cn } from '@/lib/cn';
 
 interface CitedMarkdownProps {
   content: string;
   sources?: ChatResponseSource[];
+  claims?: ChatResponseClaim[];
+  evidence?: ChatResponseEvidence[];
   highlightedRef?: number | null;
   onCitationClick?: (refIndex: number) => void;
 }
@@ -59,6 +65,42 @@ function injectCitations(
   }
 
   return parts;
+}
+
+function applyStructuredClaims(
+  content: string,
+  claims: ChatResponseClaim[] | undefined,
+  evidence: ChatResponseEvidence[] | undefined,
+): string {
+  if (!claims?.length || !evidence?.length) return content;
+
+  const refByEvidence = new Map<string, number>(
+    evidence.map((e, i) => [e.evidenceId, i + 1]),
+  );
+
+  let cursor = 0;
+  let out = '';
+  for (const claim of claims) {
+    const idx = content.indexOf(claim.claimText, cursor);
+    if (idx === -1) continue;
+    const claimEnd = idx + claim.claimText.length;
+    out += content.slice(cursor, claimEnd);
+
+    const tail = content.slice(claimEnd);
+    const hasMarkerAlready = /^\s*\[\d+\]/.test(tail);
+    if (!hasMarkerAlready) {
+      const markers = claim.evidenceIds
+        .map((id) => refByEvidence.get(id))
+        .filter((n): n is number => Boolean(n))
+        .map((n) => `[${n}]`)
+        .join('');
+      if (markers) out += markers;
+    }
+    cursor = claimEnd;
+  }
+
+  out += content.slice(cursor);
+  return out;
 }
 
 function processNode(
@@ -241,17 +283,24 @@ function buildComponents(
 export function CitedMarkdown({
   content,
   sources,
+  claims,
+  evidence,
   highlightedRef,
   onCitationClick,
 }: CitedMarkdownProps) {
+  const renderedContent = useMemo(
+    () => applyStructuredClaims(content, claims, evidence),
+    [content, claims, evidence],
+  );
+
   const hasCitations = useMemo(
-    () => Boolean(sources?.length) && HAS_CITATION_RE.test(content),
-    [content, sources],
+    () => Boolean(sources?.length) && HAS_CITATION_RE.test(renderedContent),
+    [renderedContent, sources],
   );
 
   if (!hasCitations) {
     return (
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{renderedContent}</ReactMarkdown>
     );
   }
 
@@ -267,7 +316,7 @@ export function CitedMarkdown({
       remarkPlugins={[remarkGfm]}
       components={components as never}
     >
-      {content}
+      {renderedContent}
     </ReactMarkdown>
   );
 }

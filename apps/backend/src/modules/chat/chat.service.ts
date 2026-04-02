@@ -21,6 +21,21 @@ function stripThinkingBlocks(text: string): string {
   return text.replace(COMPLETE_THINKING_RE, '').replace(PARTIAL_THINKING_RE, '').trim();
 }
 
+function mapEvidenceToSources(
+  evidence?: ChatResponseEvent['evidence'],
+): ChatResponseEvent['sources'] | undefined {
+  if (!evidence?.length) return undefined;
+  return evidence.map((e) => ({
+    fileId: e.fileId,
+    fileName: e.fileName,
+    chunkIndex: e.chunkIndex,
+    score: e.score,
+    excerpt: e.excerpt,
+    pageNumber: e.pageNumber,
+    citationContent: e.citationContent,
+  }));
+}
+
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
@@ -120,15 +135,20 @@ export class ChatService {
     if (event.done) {
       const chunks = this.chunkAccumulator.get(event.correlationId) ?? [];
       const fullContent = stripThinkingBlocks(chunks.join(''));
+      const renderedAnswer = event.renderedAnswer
+        ? stripThinkingBlocks(event.renderedAnswer)
+        : fullContent;
+      const persistedSources =
+        mapEvidenceToSources(event.evidence) ?? event.sources;
 
       try {
         await this.messageRepo.save(
           this.messageRepo.create({
             conversationId: event.conversationId,
             role: ChatRole.ASSISTANT,
-            content: fullContent,
+            content: renderedAnswer,
             sources:
-              (event.sources as unknown as Record<string, unknown>[]) ?? null,
+              (persistedSources as unknown as Record<string, unknown>[]) ?? null,
             confidenceScore: event.confidenceScore ?? null,
           }),
         );

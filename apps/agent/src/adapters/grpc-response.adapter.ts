@@ -20,6 +20,22 @@ export interface StreamChunkOptions {
   }>;
   confidenceScore?: number;
   revision?: number;
+  evidence?: Array<{
+    evidenceId: string;
+    fileId: string;
+    fileName: string;
+    chunkIndex: number;
+    score: number;
+    excerpt?: string;
+    pageNumber?: number;
+    citationContent?: string;
+  }>;
+  claims?: Array<{
+    claimText: string;
+    evidenceIds: string[];
+  }>;
+  renderedAnswer?: string;
+  citationWarnings?: string[];
 }
 
 export interface ChatResponseStream {
@@ -43,6 +59,22 @@ interface ChatResponseChunk {
   }>;
   confidenceScore?: number;
   revision?: number;
+  evidence?: Array<{
+    evidenceId: string;
+    fileId: string;
+    fileName: string;
+    chunkIndex: number;
+    score: number;
+    excerpt?: string;
+    pageNumber?: number;
+    citationContent?: string;
+  }>;
+  claims?: Array<{
+    claimText: string;
+    evidenceIds: string[];
+  }>;
+  renderedAnswer?: string;
+  citationWarnings?: string[];
 }
 
 interface StreamResponseAck {
@@ -109,6 +141,10 @@ export class GrpcResponseAdapter implements OnModuleInit {
           sources: options?.sources || [],
           confidenceScore: options?.confidenceScore,
           revision: options?.revision,
+          evidence: options?.evidence || [],
+          claims: options?.claims || [],
+          renderedAnswer: options?.renderedAnswer,
+          citationWarnings: options?.citationWarnings || [],
         });
         if (done) {
           subject.complete();

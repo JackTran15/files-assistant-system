@@ -435,7 +435,16 @@ flowchart LR
     G --> S[SSE to client]
 ```
 
-Response tokens stream over gRPC to the Backend, then SSE to the browser. History is persisted in Postgres when the stream completes.
+Response tokens stream over gRPC to the Backend, then SSE to the browser. On the final chunk, the agent now emits structured citation data (`evidence[]`, `claims[]`, `renderedAnswer`) alongside legacy `sources` for migration safety. History persists the rendered assistant content and source evidence in Postgres when the stream completes.
+
+### Citation Mapping (Hybrid)
+
+- The main answer generation still uses a single agent, but final citation metadata is emitted as structured fields:
+  - `evidence[]`: authoritative chunk references with stable `evidenceId` values (`E1`, `E2`, ...)
+  - `claims[]`: claim-to-evidence links (`claimText` -> `evidenceIds[]`)
+  - `renderedAnswer`: thinking-stripped final answer text
+- A lightweight validator/repair pass drops invalid evidence links and records warnings before the final stream event is sent.
+- Frontend rendering prefers structured claims/evidence when available and falls back to classic `[N]` parsing when needed.
 
 ### Weaviate collection schema (`FileChunks`)
 

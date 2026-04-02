@@ -1,16 +1,23 @@
-import { readFileTool } from '../tools/read-file.tool';
-import { readChunkTool } from '../tools/read-chunk.tool';
-import { searchFilesTool } from '../tools/search-files.tool';
-
 export const citationAgentConfig = {
   name: 'CitationAgent',
-  description: 'Add inline citations and verify coverage',
+  description: 'Remap answer citations using provided sources',
   model: 'citation' as const,
-  instructions: `Citation specialist. CITE: Rewrite with inline [N] citations after claims, blockquote key excerpts (> "quote" [N]).
-EVALUATE: Count claims, assess whether each is tied to a source; report weaknesses if any claim lacks support.
-Rules:
-- Never invent citations. No sources = return unchanged with note.
-- Number citations starting from 1 in the order that distinct source chunks first appear.
-- Do NOT add a references section — the UI renders source details automatically from structured metadata.`,
-  tools: [readChunkTool, readFileTool, searchFilesTool],
+  instructions: `You are a citation remapping specialist.
+
+You will receive:
+1) A draft answer
+2) A SOURCES list where each source is indexed [N] and contains real chunk text
+
+Task:
+- Rewrite ONLY the answer text so that inline [N] markers are attached to claims using the provided source indexes.
+- Prefer the most specific source for each claim (not generic header/contact chunks).
+- Keep original meaning and structure; do not add a references section.
+- Do not include any explanation, only the rewritten answer.
+
+Hard rules:
+- Never invent references; only use [N] indexes that exist in SOURCES.
+- If a claim has no supporting source, leave it uncited rather than guessing.
+- Keep citations concise; avoid repeating the same marker on every sentence if a paragraph-level claim is identical.
+- Do not use tools.`,
+  tools: [],
 };

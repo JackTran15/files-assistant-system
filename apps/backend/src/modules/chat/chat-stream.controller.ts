@@ -19,6 +19,22 @@ interface ChatResponseChunk {
   }>;
   confidenceScore?: number;
   revision?: number;
+  evidence?: Array<{
+    evidenceId: string;
+    fileId: string;
+    fileName: string;
+    chunkIndex: number;
+    score: number;
+    excerpt?: string;
+    pageNumber?: number;
+    citationContent?: string;
+  }>;
+  claims?: Array<{
+    claimText: string;
+    evidenceIds: string[];
+  }>;
+  renderedAnswer?: string;
+  citationWarnings?: string[];
 }
 
 interface StreamResponseAck {
@@ -52,6 +68,10 @@ export class ChatStreamController {
             })),
             confidenceScore: chunk.confidenceScore,
             revision: chunk.revision,
+            evidence: chunk.evidence,
+            claims: chunk.claims,
+            renderedAnswer: chunk.renderedAnswer,
+            citationWarnings: chunk.citationWarnings,
             timestamp: new Date().toISOString(),
           });
         },

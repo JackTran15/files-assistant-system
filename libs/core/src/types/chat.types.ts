@@ -4,6 +4,8 @@ export interface ChatMessage {
   role: ChatRole;
   content: string;
   sources?: ChatSource[];
+  evidence?: ChatEvidence[];
+  claims?: ChatClaim[];
   createdAt: Date;
 }
 
@@ -21,6 +23,22 @@ export interface ChatSource {
   excerpt?: string;
   pageNumber?: number;
   citationContent?: string;
+}
+
+export interface ChatEvidence {
+  evidenceId: string;
+  fileId: string;
+  fileName: string;
+  chunkIndex: number;
+  score: number;
+  excerpt?: string;
+  pageNumber?: number;
+  citationContent?: string;
+}
+
+export interface ChatClaim {
+  claimText: string;
+  evidenceIds: string[];
 }
 
 export interface ConversationMetadata {

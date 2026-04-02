@@ -14,6 +14,10 @@ message ChatResponseChunk {
   repeated SourceRef sources = 5;
   optional double confidence_score = 6;
   optional int32 revision = 7;
+  repeated EvidenceRef evidence = 8;
+  repeated ClaimRef claims = 9;
+  optional string rendered_answer = 10;
+  repeated string citation_warnings = 11;
 }
 
 message SourceRef {
@@ -28,4 +32,20 @@ message SourceRef {
 
 message StreamResponseAck {
   bool received = 1;
+}
+
+message EvidenceRef {
+  string evidence_id = 1;
+  string file_id = 2;
+  string file_name = 3;
+  int32 chunk_index = 4;
+  double score = 5;
+  optional string excerpt = 6;
+  optional int32 page_number = 7;
+  optional string citation_content = 8;
+}
+
+message ClaimRef {
+  string claim_text = 1;
+  repeated string evidence_ids = 2;
 }

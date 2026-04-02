@@ -14,6 +14,7 @@ import { setWeaviateAdapter } from '../tools/read-file.tool';
 import { setChunkReader } from '../tools/read-chunk.tool';
 import { setAnthropicClient } from '../tools/extract-text.tool';
 import { filesAssistantAgentConfig } from '../agents/files-assistant.agent';
+import { citationAgentConfig } from '../agents/citation.agent';
 import { toolLoggingHooks } from '../hooks/tool-logging.hooks';
 import Anthropic from '@anthropic-ai/sdk';
 
@@ -26,6 +27,19 @@ function createFilesAssistantAgent() {
     instructions: filesAssistantAgentConfig.instructions,
     model: anthropic(modelId),
     tools: filesAssistantAgentConfig.tools,
+    hooks: toolLoggingHooks,
+  });
+}
+
+function createCitationAgent() {
+  const modelId =
+    process.env['ANTHROPIC_MODEL'] || 'claude-sonnet-4-20250514';
+
+  return new Agent({
+    name: citationAgentConfig.name,
+    instructions: citationAgentConfig.instructions,
+    model: anthropic(modelId),
+    tools: citationAgentConfig.tools,
     hooks: toolLoggingHooks,
   });
 }
@@ -66,6 +80,10 @@ function createFilesAssistantAgent() {
       provide: 'SUPERVISOR_AGENT',
       useFactory: () => createFilesAssistantAgent(),
     },
+    {
+      provide: 'CITATION_AGENT',
+      useFactory: () => createCitationAgent(),
+    },
   ],
   exports: [
     VoyageEmbeddingAdapter,
@@ -77,6 +95,7 @@ function createFilesAssistantAgent() {
     STORAGE_PORT,
     SEARCH_PORT,
     'SUPERVISOR_AGENT',
+    'CITATION_AGENT',
   ],
 })
 export class AgentConfigModule implements OnModuleInit {

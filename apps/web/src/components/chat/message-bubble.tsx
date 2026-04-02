@@ -41,6 +41,8 @@ export function MessageBubble({ message, onSourceClick }: MessageBubbleProps) {
               <CitedMarkdown
                 content={message.content}
                 sources={message.sources}
+                claims={message.claims}
+                evidence={message.evidence}
                 highlightedRef={highlightedRef}
                 onCitationClick={handleCitationClick}
               />

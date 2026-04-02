@@ -186,8 +186,8 @@ sequenceDiagram
         gRPC->>Backend: chunk 2
         Backend-->>Client: SSE data: chunk 2
 
-        Agent->>gRPC: StreamChatResponse (final chunk + sources)
-        gRPC->>Backend: final chunk (done: true, sources array)
+        Agent->>gRPC: StreamChatResponse (final chunk + sources/evidence/claims)
+        gRPC->>Backend: final chunk (done: true, structured citation payload)
         Backend-->>Client: SSE data: final chunk (stream complete)
     end
 
@@ -207,15 +207,16 @@ sequenceDiagram
 
 ## 4. Inline Citation & Source Collection
 
-The FilesAssistant agent produces inline citations as part of its natural response generation, guided by system instructions. There is no separate citation sub-agent or post-processing loop.
+The FilesAssistant agent produces inline citations as part of its natural response generation, then a lightweight validator/repair pass ensures claims only reference real evidence IDs before the final chunk is emitted.
 
 ```mermaid
 flowchart TD
     Start(["User asks a question"]) --> Tools["Agent calls searchFiles then readChunk/readFile as needed"]
     Tools --> Collector["SourceCollector captures tool outputs - (fileId, fileName, chunkIndex, score, content)"]
     Collector --> Generate["Agent generates response with inline [N] citations"]
-    Generate --> Stream["Response streamed via gRPC"]
-    Stream --> Final["Final chunk includes structured sources array"]
+    Generate --> Validate["Validator repairs/drops invalid evidence links"]
+    Validate --> Stream["Response streamed via gRPC"]
+    Stream --> Final["Final chunk includes sources plus evidence[] and claims[]"]
 
     subgraph SourceDedup["Source Deduplication"]
         direction TB
@@ -232,8 +233,9 @@ flowchart TD
 
 1. The agent's system instructions direct it to add `[N]` citation markers after claims that draw on tool results.
 2. A `SourceCollector` hooks into `onToolEnd` — it captures search results from `searchFiles` and authoritative chunk data from `readChunk`/`readFile`.
-3. After streaming completes, collected sources are deduplicated (by `fileId:chunkIndex`), filtered (minimum score `0.5`), and attached to the final gRPC chunk as a structured `sources` array.
-4. The frontend renders source details automatically from this structured metadata — the agent does not produce a references section.
+3. On finalization, the agent builds `evidence[]` (with stable `E1`, `E2`, ...) and `claims[]` mappings (`claimText -> evidenceIds[]`) from the rendered answer and collected chunks.
+4. A validator/repair pass removes invalid evidence references and emits warnings for dropped mappings.
+5. The final gRPC chunk includes legacy `sources` plus structured `evidence[]` and `claims[]`; the frontend prefers structured mapping when present.
 
 **Citation rules (from agent instructions):**
 

@@ -5,6 +5,10 @@ export interface ChatResponseEvent {
   done: boolean;
   cancelled?: boolean;
   sources?: ChatResponseSource[];
+  evidence?: ChatResponseEvidence[];
+  claims?: ChatResponseClaim[];
+  renderedAnswer?: string;
+  citationWarnings?: string[];
   confidenceScore?: number;
   revision?: number;
   timestamp: string;
@@ -18,6 +22,22 @@ export interface ChatResponseSource {
   excerpt?: string;
   pageNumber?: number;
   citationContent?: string;
+}
+
+export interface ChatResponseEvidence {
+  evidenceId: string;
+  fileId: string;
+  fileName: string;
+  chunkIndex: number;
+  score: number;
+  excerpt?: string;
+  pageNumber?: number;
+  citationContent?: string;
+}
+
+export interface ChatResponseClaim {
+  claimText: string;
+  evidenceIds: string[];
 }
 
 export function createChatResponseEvent(

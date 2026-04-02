@@ -35,6 +35,28 @@ function collectSourceChunks(results: SearchResult[]) {
   }));
 }
 
+function scoreChunkSignal(content: string): number {
+  const normalized = content.replace(/\s+/g, ' ').trim();
+  if (!normalized) return 0;
+
+  const alphaNumMatches = normalized.match(/[a-zA-Z0-9]/g);
+  const alphaNumCount = alphaNumMatches?.length ?? 0;
+  const headingOrRuleOnly = /^(#{1,6}\s+.+|[-*_]{2,})$/m.test(normalized);
+
+  let score = 0;
+  if (normalized.length >= 40) score += 2;
+  if (alphaNumCount >= 25) score += 2;
+  if (/[.?!:;]/.test(normalized)) score += 1;
+  if (headingOrRuleOnly) score -= 3;
+
+  return score;
+}
+
+function filterLowSignalResults(results: SearchResult[]): SearchResult[] {
+  const filtered = results.filter((r) => scoreChunkSignal(r.content) > 0);
+  return filtered.length > 0 ? filtered : results;
+}
+
 export const searchFilesTool = createTool({
   name: 'searchFiles',
   description:
@@ -60,12 +82,13 @@ export const searchFilesTool = createTool({
     }
 
     try {
-      const results = await searchAdapter.search(
+      const rawResults = await searchAdapter.search(
         input.query,
         input.tenantId,
         input.limit,
         input.fileIds,
       );
+      const results = filterLowSignalResults(rawResults);
       return {
         results: truncateResults(results),
         query: input.query,

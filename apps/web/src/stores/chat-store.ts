@@ -4,11 +4,13 @@ import type {
   Conversation,
   ChatResponseSource,
   ChatResponseEvent,
+  ChatResponseEvidence,
 } from '@/types/chat.types';
 import { ChatRole } from '@/types/chat.types';
 import { api } from '@/lib/api';
 import { createSSEConnection } from '@/lib/sse';
 import { buildMessageParts } from '@/lib/parse-citations';
+import { deriveClaimsFromText } from '@/lib/parse-citations';
 import {
   cleanAssistantContent,
   extractThinkingAndContent,
@@ -39,8 +41,7 @@ interface ChatState {
   stopStream: () => void;
   appendStreamChunk: (chunk: string) => void;
   finalizeStream: (
-    sources?: ChatResponseSource[],
-    confidenceScore?: number,
+    event?: ChatResponseEvent,
   ) => void;
   loadHistory: () => Promise<void>;
   setActiveConversation: (id: string | null) => void;
@@ -63,12 +64,16 @@ function normalizeSources(
 
 function normalizeMessage(message: Message): Message {
   const sources = normalizeSources(message.sources);
+  const evidence = message.evidence;
+  const claims = message.claims ?? deriveClaimsFromText(message.content, evidence);
   return {
     ...message,
     sources,
+    evidence,
+    claims,
     parts:
       message.role === ChatRole.ASSISTANT
-        ? buildMessageParts(message.content, sources)
+        ? buildMessageParts(message.content, sources, claims, evidence)
         : message.parts,
   };
 }
@@ -169,7 +174,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
 
           if (event.done) {
-            get().finalizeStream(event.sources, event.confidenceScore);
+            get().finalizeStream(event);
             connection.close();
           }
         },
@@ -249,18 +254,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
-  finalizeStream: (sources, confidenceScore) => {
+  finalizeStream: (event) => {
     set((state) => {
-      const content = cleanAssistantContent(state._rawStream);
-      const resolvedSources = normalizeSources(sources) ?? [];
+      const content = cleanAssistantContent(
+        event?.renderedAnswer ?? state._rawStream,
+      );
+      const normalizedEvidence = (event?.evidence ?? []).map((e) => ({
+        ...e,
+        citationContent: e.citationContent ?? e.excerpt,
+      })) as ChatResponseEvidence[];
+      const resolvedSources = normalizeSources(
+        event?.sources ??
+          normalizedEvidence.map((e) => ({
+            fileId: e.fileId,
+            fileName: e.fileName,
+            chunkIndex: e.chunkIndex,
+            score: e.score,
+            excerpt: e.excerpt,
+            pageNumber: e.pageNumber,
+            citationContent: e.citationContent,
+          })),
+      ) ?? [];
+      const claims = event?.claims ?? deriveClaimsFromText(content, normalizedEvidence);
       const assistantMessage: Message = {
         id: `msg-${Date.now()}`,
         conversationId: state.activeConversationId ?? '',
         role: ChatRole.ASSISTANT,
         content,
         sources: resolvedSources,
-        confidenceScore: confidenceScore ?? undefined,
-        parts: buildMessageParts(content, resolvedSources),
+        evidence: normalizedEvidence,
+        claims,
+        confidenceScore: event?.confidenceScore ?? undefined,
+        parts: buildMessageParts(
+          content,
+          resolvedSources,
+          claims,
+          normalizedEvidence,
+        ),
         createdAt: new Date().toISOString(),
       };
 
