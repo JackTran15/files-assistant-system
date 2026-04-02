@@ -10,6 +10,8 @@ interface SourceCitationsProps {
   onSourceClick?: (source: ChatResponseSource) => void;
 }
 
+const MIN_RELEVANCE_SCORE = 0.5;
+
 export function SourceCitations({
   sources,
   confidenceScore,
@@ -31,7 +33,7 @@ export function SourceCitations({
     if (highlightedRef != null && highlightedRef >= 1) {
       if (!isExpanded) setIsExpanded(true);
       requestAnimationFrame(() => {
-        const el = rowRefs.current.get(highlightedRef - 1);
+        const el = rowRefs.current.get(highlightedRef);
         if (el) {
           (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
@@ -39,7 +41,12 @@ export function SourceCitations({
     }
   }, [highlightedRef]);
 
-  const relevantSources = sources ?? [];
+  const relevantSources = (sources ?? [])
+    .map((source, index) => ({
+      source,
+      refIndex: index + 1,
+    }))
+    .filter(({ source }) => source.score > MIN_RELEVANCE_SCORE);
 
   if (relevantSources.length === 0) return null;
 
@@ -75,12 +82,12 @@ export function SourceCitations({
 
       {isExpanded && (
         <div className="border-t px-3 py-2 space-y-2">
-          {relevantSources.map((source, i) => {
-            const isActive = highlightedRef === i + 1;
+          {relevantSources.map(({ source, refIndex }) => {
+            const isActive = highlightedRef === refIndex;
             return (
               <div
                 key={`${source.fileId}-${source.chunkIndex}`}
-                ref={setRowRef(i)}
+                ref={setRowRef(refIndex)}
                 role={onSourceClick ? 'button' : undefined}
                 tabIndex={onSourceClick ? 0 : undefined}
                 onClick={() => onSourceClick?.(source)}
@@ -99,7 +106,7 @@ export function SourceCitations({
                 <FileText className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0">
                   <p className="text-xs font-medium break-words">
-                    [{i + 1}] {source.fileName}
+                    [{refIndex}] {source.fileName}
                     {source.pageNumber != null && (
                       <span className="text-muted-foreground">
                         {' '}

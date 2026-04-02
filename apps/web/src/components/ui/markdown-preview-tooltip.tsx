@@ -243,7 +243,7 @@ export function MarkdownPreviewTooltip({
           onMouseEnter={show}
           onMouseLeave={hide}
           className={cn(
-            'rounded-lg border bg-popover text-popover-foreground shadow-xl',
+            'rounded-lg border border-slate-300 bg-white text-slate-900 shadow-xl',
             'animate-in fade-in-0 zoom-in-95 duration-150',
           )}
           style={{ ...posStyle, maxWidth, width: maxWidth }}
@@ -260,13 +260,13 @@ export function MarkdownPreviewTooltip({
               '[&_ul]:list-disc [&_ul]:pl-5 [&_ul]:my-1.5',
               '[&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:my-1.5',
               '[&_li]:my-0.5',
-              '[&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_blockquote]:italic [&_blockquote]:text-muted-foreground',
-              '[&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:overflow-x-auto [&_pre]:text-xs',
-              '[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:text-xs',
+              '[&_blockquote]:rounded-r-md [&_blockquote]:border-l-4 [&_blockquote]:border-primary [&_blockquote]:bg-slate-100 [&_blockquote]:px-4 [&_blockquote]:py-2 [&_blockquote]:italic [&_blockquote]:text-slate-700',
+              '[&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-slate-300 [&_pre]:bg-slate-900 [&_pre]:p-3 [&_pre]:text-xs [&_pre]:text-slate-50',
+              '[&_code]:rounded [&_code]:bg-slate-200 [&_code]:px-1 [&_code]:text-xs [&_code]:text-slate-900',
               '[&_hr]:my-3 [&_hr]:border-border',
-              '[&_table]:w-full [&_table]:text-xs',
-              '[&_th]:text-left [&_th]:font-semibold [&_th]:border-b [&_th]:pb-1',
-              '[&_td]:border-b [&_td]:py-1',
+              '[&_table]:w-full [&_table]:border-collapse [&_table]:text-xs [&_table]:bg-slate-50',
+              '[&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-200 [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold',
+              '[&_td]:border [&_td]:border-slate-300 [&_td]:bg-white [&_td]:px-3 [&_td]:py-2',
               '[&_strong]:font-semibold',
               '[&_a]:text-primary [&_a]:underline',
             )}

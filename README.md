@@ -146,7 +146,7 @@ files-assistant/
 ```mermaid
 graph TB
     subgraph Client
-        Web["Web<br/><i>React · Vite · Zustand</i>"]
+        Web["Web - <i>React · Vite · Zustand</i>"]
     end
 
     subgraph Backend["Backend (NestJS)"]
@@ -158,14 +158,14 @@ graph TB
     end
 
     subgraph Agent["Agent (NestJS µsvc)"]
-        FA["FilesAssistant<br/>searchFiles + readFile"]
+        FA["FilesAssistant - searchFiles + readFile"]
         KAFKA_CON["Kafka Consumers"]
         GRPC_S["gRPC Server"]
     end
 
     subgraph Storage
         PG[(PostgreSQL)]
-        WV[(Weaviate<br/>Hybrid BM25 + Vector)]
+        WV[(Weaviate - Hybrid BM25 + Vector)]
     end
 
     Web -->|"HTTP POST"| API

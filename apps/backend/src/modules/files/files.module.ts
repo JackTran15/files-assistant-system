@@ -7,6 +7,7 @@ import { FilesService } from './files.service';
 import { FileEntity } from './entities/file.entity';
 import { ChunkEntity } from './entities/chunk.entity';
 import { KafkaModule } from '../kafka/kafka.module';
+import { ChunkLookupService } from './chunk-lookup.service';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import { KafkaModule } from '../kafka/kafka.module';
     KafkaModule,
   ],
   controllers: [FilesController],
-  providers: [FilesService],
+  providers: [FilesService, ChunkLookupService],
   exports: [FilesService],
 })
 export class FilesModule {}

@@ -27,17 +27,17 @@ The system has two distinct runtime paths — **chat** and **ingestion** — wit
 graph TB
     subgraph ChatPath["Chat Path"]
         direction TB
-        FA["FilesAssistant Agent<br/><i>claude-sonnet-4-20250514 (configurable)</i>"]
-        T1["searchFiles<br/>Hybrid BM25 + vector"]
-        T2["readFile<br/>Full file content via stored chunks"]
+        FA["FilesAssistant Agent - <i>claude-sonnet-4-20250514 (configurable)</i>"]
+        T1["searchFiles - Hybrid BM25 + vector"]
+        T2["readFile - Full file content via stored chunks"]
         FA --> T1
         FA --> T2
     end
 
     subgraph IngestionPath["Ingestion Path"]
         direction TB
-        IC["IngestionConsumer<br/><i>deterministic pipeline</i>"]
-        S1["extractText<br/>PDF via Haiku, raw for TXT/MD/JSON"]
+        IC["IngestionConsumer - <i>deterministic pipeline</i>"]
+        S1["extractText - PDF via Haiku, raw for TXT/MD/JSON"]
         S2["RecursiveTextChunker"]
         S3["Voyage AI embeddings"]
         S4["Weaviate storage"]
@@ -81,7 +81,7 @@ sequenceDiagram
     Backend->>Kafka: Produce -> file.uploaded
     Backend-->>Client: 202 Accepted (fileId)
 
-    Note over Client,Backend: Client opens SSE connection<br/>GET /api/files/:id/events
+    Note over Client,Backend: Client opens SSE connection - GET /api/files/:id/events
 
     Kafka->>Agent: Consume <- file.uploaded
 
@@ -157,7 +157,7 @@ sequenceDiagram
     Backend->>Kafka: Produce -> chat.request (correlationId)
     Backend-->>Client: 200 OK { correlationId, conversationId }
 
-    Note over Client,Backend: Client opens SSE connection<br/>GET /api/chat/stream/:correlationId
+    Note over Client,Backend: Client opens SSE connection - GET /api/chat/stream/:correlationId
 
     Kafka->>Agent: Consume <- chat.request
 
@@ -208,7 +208,7 @@ The FilesAssistant agent produces inline citations as part of its natural respon
 ```mermaid
 flowchart TD
     Start(["User asks a question"]) --> Tools["Agent calls searchFiles / readFile"]
-    Tools --> Collector["SourceCollector captures tool outputs<br/>(fileId, fileName, chunkIndex, score, content)"]
+    Tools --> Collector["SourceCollector captures tool outputs - (fileId, fileName, chunkIndex, score, content)"]
     Collector --> Generate["Agent generates response with inline [N] citations"]
     Generate --> Stream["Response streamed via gRPC"]
     Stream --> Final["Final chunk includes structured sources array"]
@@ -248,26 +248,26 @@ The system is designed to degrade gracefully. Chat errors are surfaced through t
 flowchart TD
     Start(["Chat request arrives"]) --> Agent["FilesAssistant processes query"]
 
-    Agent --> ToolOK{"Tool calls<br/>succeeded?"}
+    Agent --> ToolOK{"Tool calls - succeeded?"}
 
-    ToolOK -- Yes --> Respond(["Agent responds with<br/>inline citations + sources"])
+    ToolOK -- Yes --> Respond(["Agent responds with - inline citations + sources"])
 
-    ToolOK -- "Partial (some tools failed)" --> Partial(["Agent responds with<br/>available information"])
+    ToolOK -- "Partial (some tools failed)" --> Partial(["Agent responds with - available information"])
 
-    Agent -- "Agent error / LLM failure" --> ErrorMsg(["Error message streamed<br/>to client via gRPC/SSE"])
+    Agent -- "Agent error / LLM failure" --> ErrorMsg(["Error message streamed - to client via gRPC/SSE"])
 
     subgraph DLQ["Dead-Letter Queue Flow"]
         direction TB
-        Poison(["Poison message<br/>repeated processing failures"]) --> DLQRoute{"Source topic?"}
+        Poison(["Poison message - repeated processing failures"]) --> DLQRoute{"Source topic?"}
         DLQRoute -- "file.uploaded" --> DLQF["dlq.file.uploaded"]
         DLQRoute -- "file.extracted" --> DLQE["dlq.file.extracted"]
         DLQRoute -- "chat.request" --> DLQC["dlq.chat.request"]
-        DLQF --> Monitor["Ops monitoring &<br/>manual inspection"]
+        DLQF --> Monitor["Ops monitoring & - manual inspection"]
         DLQE --> Monitor
         DLQC --> Monitor
     end
 
-    ErrorMsg -.->|"if caused by<br/>poison message"| Poison
+    ErrorMsg -.->|"if caused by - poison message"| Poison
 ```
 
 **Chat degradation:**
@@ -340,7 +340,7 @@ graph LR
     Agents -.->|"on failure"| T7
     Agents -.->|"on failure"| T8
 
-    Agents ==>|"StreamChatResponse<br/>(response chunks)"| G1
+    Agents ==>|"StreamChatResponse - (response chunks)"| G1
     G1 ==>|"forward chunks"| Backend
     Backend -->|"SSE"| Client
 

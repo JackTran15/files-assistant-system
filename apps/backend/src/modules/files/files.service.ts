@@ -9,6 +9,7 @@ import { SearchFilesDto } from './dto/search-files.dto';
 import { FileStatus, FileType } from '@files-assistant/core';
 import { KafkaProducerService } from '../kafka/kafka.producer';
 import { createFileUploadedEvent } from '@files-assistant/events';
+import { ChunkLookupService } from './chunk-lookup.service';
 
 export interface FileStatusEvent {
   fileId: string;
@@ -38,6 +39,7 @@ export class FilesService {
     @InjectRepository(ChunkEntity)
     private readonly chunkRepo: Repository<ChunkEntity>,
     private readonly kafkaProducer: KafkaProducerService,
+    private readonly chunkLookupService: ChunkLookupService,
   ) {}
 
   async upload(
@@ -241,22 +243,8 @@ export class FilesService {
     chunkIndex: number;
     content: string;
   }> {
-    const chunk = await this.chunkRepo.findOne({
-      where: { fileId, index: chunkIndex },
-      select: ['fileId', 'index', 'content'],
-    });
-
-    if (!chunk) {
-      throw new NotFoundException(
-        `Chunk ${chunkIndex} for file ${fileId} not found`,
-      );
-    }
-
-    return {
-      fileId: chunk.fileId,
-      chunkIndex: chunk.index,
-      content: chunk.content,
-    };
+    const file = await this.findOne(fileId);
+    return this.chunkLookupService.findChunk(fileId, file.tenantId, chunkIndex);
   }
 
   private static readonly NON_DELETABLE_STATUSES: FileStatus[] = [

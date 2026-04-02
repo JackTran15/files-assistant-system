@@ -6,11 +6,13 @@ import { FileEntity } from './entities/file.entity';
 import { ChunkEntity } from './entities/chunk.entity';
 import { KafkaProducerService } from '../kafka/kafka.producer';
 import { FileStatus } from '@files-assistant/core';
+import { ChunkLookupService } from './chunk-lookup.service';
 
 describe('FilesService', () => {
   let service: FilesService;
   let fileRepo: Record<string, jest.Mock>;
   let chunkRepo: Record<string, jest.Mock>;
+  let chunkLookupService: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     fileRepo = {
@@ -21,6 +23,9 @@ describe('FilesService', () => {
     chunkRepo = {
       findOne: jest.fn(),
     };
+    chunkLookupService = {
+      findChunk: jest.fn(),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -28,6 +33,7 @@ describe('FilesService', () => {
         { provide: getRepositoryToken(FileEntity), useValue: fileRepo },
         { provide: getRepositoryToken(ChunkEntity), useValue: chunkRepo },
         { provide: KafkaProducerService, useValue: {} },
+        { provide: ChunkLookupService, useValue: chunkLookupService },
       ],
     }).compile();
 
@@ -222,18 +228,23 @@ describe('FilesService', () => {
   });
 
   it('findChunk returns full chunk content for a file', async () => {
-    chunkRepo.findOne.mockResolvedValue({
+    fileRepo.findOne.mockResolvedValue({
+      id: 'f-1',
+      tenantId: 'tenant-1',
+    });
+    chunkLookupService.findChunk.mockResolvedValue({
       fileId: 'f-1',
-      index: 3,
+      chunkIndex: 3,
       content: 'Full chunk content',
     });
 
     const result = await service.findChunk('f-1', 3);
 
-    expect(chunkRepo.findOne).toHaveBeenCalledWith({
-      where: { fileId: 'f-1', index: 3 },
-      select: ['fileId', 'index', 'content'],
-    });
+    expect(chunkLookupService.findChunk).toHaveBeenCalledWith(
+      'f-1',
+      'tenant-1',
+      3,
+    );
     expect(result).toEqual({
       fileId: 'f-1',
       chunkIndex: 3,

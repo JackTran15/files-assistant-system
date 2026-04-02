@@ -9,6 +9,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatResponseSource } from '@/types/chat.types';
 import { CitationChip } from './citation-chip';
+import { cn } from '@/lib/cn';
 
 interface CitedMarkdownProps {
   content: string;
@@ -126,6 +127,113 @@ function buildComponents(
     Comp.displayName = `Cited_${tag}`;
     comps[tag] = Comp;
   }
+
+  comps.pre = ({ children, node: _node, className, ...rest }) => (
+    <pre
+      {...rest}
+      className={cn(
+        'overflow-x-auto rounded-md border border-slate-300 bg-slate-950 p-3 text-slate-50 dark:border-slate-700 dark:bg-slate-900',
+        className as string | undefined,
+      )}
+    >
+      {children as ReactNode}
+    </pre>
+  );
+
+  comps.code = ({ children, node: _node, className, ...rest }) => {
+    const isBlockCode = String(className ?? '').includes('language-');
+
+    return (
+      <code
+        {...rest}
+        className={cn(
+          isBlockCode
+            ? 'bg-transparent px-0 py-0 text-inherit'
+            : 'rounded bg-slate-200 px-1 py-0.5 text-[0.9em] text-slate-900 dark:bg-slate-800 dark:text-slate-100',
+          className as string | undefined,
+        )}
+      >
+        {children as ReactNode}
+      </code>
+    );
+  };
+
+  comps.blockquote = ({ children, node: _node, className, ...rest }) => {
+    const processed = processNode(
+      children as ReactNode,
+      sources,
+      highlightedRef,
+      onCitationClick,
+    );
+
+    return (
+      <blockquote
+        {...rest}
+        className={cn(
+          'rounded-r-md border-l-4 border-primary bg-slate-100 px-4 py-2 text-slate-700 dark:bg-slate-900 dark:text-slate-200',
+          className as string | undefined,
+        )}
+      >
+        {processed}
+      </blockquote>
+    );
+  };
+
+  comps.table = ({ children, node: _node, className, ...rest }) => (
+    <div className="my-3 overflow-x-auto rounded-md border border-slate-300 dark:border-slate-700">
+      <table
+        {...rest}
+        className={cn(
+          'w-full border-collapse bg-slate-50 dark:bg-slate-950',
+          className as string | undefined,
+        )}
+      >
+        {children as ReactNode}
+      </table>
+    </div>
+  );
+
+  comps.th = ({ children, node: _node, className, ...rest }) => {
+    const processed = processNode(
+      children as ReactNode,
+      sources,
+      highlightedRef,
+      onCitationClick,
+    );
+
+    return (
+      <th
+        {...rest}
+        className={cn(
+          'border border-slate-300 bg-slate-200 px-3 py-2 text-left font-semibold dark:border-slate-700 dark:bg-slate-800',
+          className as string | undefined,
+        )}
+      >
+        {processed}
+      </th>
+    );
+  };
+
+  comps.td = ({ children, node: _node, className, ...rest }) => {
+    const processed = processNode(
+      children as ReactNode,
+      sources,
+      highlightedRef,
+      onCitationClick,
+    );
+
+    return (
+      <td
+        {...rest}
+        className={cn(
+          'border border-slate-300 bg-white px-3 py-2 align-top dark:border-slate-700 dark:bg-slate-900',
+          className as string | undefined,
+        )}
+      >
+        {processed}
+      </td>
+    );
+  };
 
   return comps;
 }
