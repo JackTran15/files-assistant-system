@@ -24,8 +24,8 @@ interface CitedMarkdownProps {
   onCitationClick?: (refIndex: number) => void;
 }
 
-const CITATION_RE = /\[(\d+)\]/g;
-const HAS_CITATION_RE = /\[(\d+)\]/;
+const CITATION_RE = /\[([\d,\s]+)\]/g;
+const HAS_CITATION_RE = /\[\s*\d+(?:\s*,\s*\d+)*\s*\]/;
 
 let chipKey = 0;
 
@@ -39,23 +39,32 @@ function injectCitations(
   let lastIndex = 0;
 
   for (const match of text.matchAll(CITATION_RE)) {
-    const refIndex = parseInt(match[1], 10);
-    if (refIndex < 1 || refIndex > sources.length) continue;
+    const refIndexes = match[1]
+      .split(',')
+      .map((raw) => parseInt(raw.trim(), 10))
+      .filter((refIndex) => Number.isInteger(refIndex))
+      .filter((refIndex) => refIndex >= 1 && refIndex <= sources.length);
+    if (refIndexes.length === 0) continue;
 
-    const source = sources[refIndex - 1];
     if (match.index > lastIndex) {
       parts.push(text.slice(lastIndex, match.index));
     }
 
-    parts.push(
-      <CitationChip
-        key={`cite-${chipKey++}`}
-        refIndex={refIndex}
-        source={source}
-        isHighlighted={highlightedRef === refIndex}
-        onClick={onCitationClick}
-      />,
-    );
+    refIndexes.forEach((refIndex, i) => {
+      const source = sources[refIndex - 1];
+      parts.push(
+        <CitationChip
+          key={`cite-${chipKey++}`}
+          refIndex={refIndex}
+          source={source}
+          isHighlighted={highlightedRef === refIndex}
+          onClick={onCitationClick}
+        />,
+      );
+      if (i < refIndexes.length - 1) {
+        parts.push(', ');
+      }
+    });
 
     lastIndex = match.index + match[0].length;
   }

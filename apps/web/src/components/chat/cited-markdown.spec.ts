@@ -54,4 +54,34 @@ describe('CitedMarkdown', () => {
     expect(first).not.toContain('[1]');
     expect(second).not.toContain('[1]');
   });
+
+  it('renders grouped citation refs like [1, 2] as chips', () => {
+    const sources: ChatResponseSource[] = [
+      {
+        fileId: 'file-1',
+        fileName: 'resume.md',
+        chunkIndex: 0,
+        score: 0.8,
+        excerpt: 'TypeScript and React',
+      },
+      {
+        fileId: 'file-2',
+        fileName: 'design.md',
+        chunkIndex: 3,
+        score: 0.7,
+        excerpt: 'System design notes',
+      },
+    ];
+
+    const html = renderToStaticMarkup(
+      createElement(CitedMarkdown, {
+        content: 'Answer with grouped refs [1, 2].',
+        sources,
+      }),
+    );
+
+    expect(html).toContain('>1<');
+    expect(html).toContain('>2<');
+    expect(html).not.toContain('[1, 2]');
+  });
 });

@@ -21,6 +21,8 @@ import { cn } from '@/lib/cn';
 interface MarkdownPreviewTooltipProps {
   markdown?: string;
   searchText?: string;
+  title?: string;
+  subtitle?: string;
   children: ReactNode;
   className?: string;
   maxHeight?: number;
@@ -179,6 +181,8 @@ function computePosition(
 export function MarkdownPreviewTooltip({
   markdown,
   searchText,
+  title,
+  subtitle,
   children,
   className,
   maxHeight = 400,
@@ -248,6 +252,20 @@ export function MarkdownPreviewTooltip({
           )}
           style={{ ...posStyle, maxWidth, width: maxWidth }}
         >
+          {(title || subtitle) && (
+            <div className="border-b border-slate-200 px-4 py-2 dark:border-slate-800">
+              {title && (
+                <p className="truncate text-xs font-semibold text-slate-900 dark:text-slate-100">
+                  {title}
+                </p>
+              )}
+              {subtitle && (
+                <p className="truncate text-[11px] text-muted-foreground">
+                  {subtitle}
+                </p>
+              )}
+            </div>
+          )}
           <div
             ref={scrollRef}
             className={cn(

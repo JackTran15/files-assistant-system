@@ -41,6 +41,9 @@ pnpm exec nx serve backend
 # Start agent service (Kafka consumer)
 pnpm exec nx serve agent
 
+# Start web app (:4300, calls backend cross-origin)
+pnpm exec nx serve web
+
 # Start agent dev server with VoltOps dashboard (:3141)
 pnpm exec nx serve agent-dev
 ```
@@ -52,6 +55,7 @@ pnpm exec nx serve agent-dev
 pnpm exec nx serve backend              # NestJS API (:3000)
 pnpm exec nx serve agent                # Kafka consumer agent
 pnpm exec nx serve agent-dev            # VoltAgent + VoltOps (:3141)
+pnpm exec nx serve web                  # React app (:4300, uses VITE_API_BASE_URL)
 
 # Build
 pnpm exec nx build backend --configuration=production

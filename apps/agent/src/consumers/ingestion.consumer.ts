@@ -33,9 +33,11 @@ export class IngestionConsumer {
   async handleFileUploaded(
     @Payload() event: FileUploadedEvent,
   ): Promise<void> {
+    const startedAt = Date.now();
     this.logger.log(
-      `[${event.fileId}] Starting ingestion: ${event.fileName}`,
+      `[${event.fileId}] Starting ingestion: ${event.fileName} (tenant=${event.tenantId}, mime=${event.mimeType})`,
     );
+    this.logger.debug(`[${event.fileId}] Source storage path: ${event.storagePath}`);
 
     try {
       this.logger.log(
@@ -96,6 +98,9 @@ export class IngestionConsumer {
         event.fileName,
       );
       const vectors = await this.embeddingAdapter.embedDocuments(contextualTexts);
+      this.logger.log(
+        `[${event.fileId}] Generated ${vectors.length} embedding vectors`,
+      );
 
       const result = await this.storageAdapter.storeChunks(
         chunkOffsets.map((c) => c.content),
@@ -111,7 +116,9 @@ export class IngestionConsumer {
         vectorsStored: vectors.length,
       });
 
-      this.logger.log(`[${event.fileId}] Ingestion complete`);
+      this.logger.log(
+        `[${event.fileId}] Ingestion complete in ${Date.now() - startedAt}ms`,
+      );
     } catch (error) {
       const stage =
         error instanceof AgentProcessingError ? error.stage : 'extraction';
@@ -129,7 +136,7 @@ export class IngestionConsumer {
       });
 
       this.logger.error(
-        `[${event.fileId}] Ingestion failed at ${validStage}`,
+        `[${event.fileId}] Ingestion failed at ${validStage} after ${Date.now() - startedAt}ms`,
         error,
       );
     }

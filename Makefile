@@ -39,7 +39,7 @@ agent: ## Start agent service in dev mode
 agent-dev: ## Start agent-dev service in dev mode
 	npx nx serve agent-dev
 
-web: ## Start web UI in dev mode (http://localhost:4200)
+web: ## Start web UI in dev mode (http://localhost:4300)
 	npx nx serve web
 
 serve: ## Start backend + agent in parallel

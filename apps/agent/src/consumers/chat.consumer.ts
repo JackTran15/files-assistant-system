@@ -66,8 +66,12 @@ export class ChatConsumer {
 
   @EventPattern(TOPICS.CHAT_REQUEST)
   async handleChatRequest(@Payload() event: ChatRequestEvent): Promise<void> {
+    const startedAt = Date.now();
     this.logger.log(
       `Chat request: ${event.correlationId} - "${event.message.slice(0, 50)}..."`,
+    );
+    this.logger.log(
+      `Chat request ${event.correlationId} context: tenant=${event.tenantId}, conversation=${event.conversationId}`,
     );
 
     if (event.fileIds?.length) {
@@ -96,6 +100,9 @@ export class ChatConsumer {
         streamedChunks.push(chunk);
         stream.sendChunk(chunk, false);
       }
+      this.logger.log(
+        `Chat request ${event.correlationId} streamed ${streamedChunks.length} chunk(s)`,
+      );
 
       const sources = collector.toStreamSources() ?? [];
       const draftAnswer = stripThinkingBlocks(streamedChunks.join(''));
@@ -136,14 +143,17 @@ export class ChatConsumer {
       });
 
       this.logger.log(
-        `Chat request ${event.correlationId} processed (${sources.length} sources, ${mapping.claims.length} claims)`,
+        `Chat request ${event.correlationId} processed (${sources.length} sources, ${mapping.claims.length} claims, ${Date.now() - startedAt}ms)`,
       );
     } catch (error) {
       stream.sendChunk(
         `[Error: ${error instanceof Error ? error.message : String(error)}]`,
         true,
       );
-      this.logger.error(`Chat request ${event.correlationId} failed`, error);
+      this.logger.error(
+        `Chat request ${event.correlationId} failed after ${Date.now() - startedAt}ms`,
+        error,
+      );
     }
   }
 }

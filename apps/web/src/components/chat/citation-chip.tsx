@@ -23,6 +23,11 @@ function getCitationPreviewSearchText(source: ChatResponseSource): string | unde
     : source.excerpt;
 }
 
+function getCitationSubtitle(source: ChatResponseSource): string | undefined {
+  if (source.pageNumber == null) return undefined;
+  return `Page ${source.pageNumber}`;
+}
+
 export function CitationChip({ refIndex, source, isHighlighted, onClick }: CitationChipProps) {
   const initialMarkdown = useMemo(
     () => (source ? getCitationPreviewMarkdown(source) : undefined),
@@ -80,6 +85,8 @@ export function CitationChip({ refIndex, source, isHighlighted, onClick }: Citat
     <MarkdownPreviewTooltip
       markdown={previewMarkdown}
       searchText={getCitationPreviewSearchText(source)}
+      title={source.fileName}
+      subtitle={getCitationSubtitle(source)}
       loading={isLoadingPreview && !previewMarkdown}
       onOpen={handlePreviewOpen}
     >
