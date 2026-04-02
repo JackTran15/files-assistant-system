@@ -33,20 +33,30 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('BACKEND_PORT', 3000);
   const grpcPort = configService.get<number>('GRPC_PORT', 5050);
+  const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+  const isDevelopment = nodeEnv === 'development';
   const allowedOriginsRaw = configService.get<string>(
     'CORS_ALLOWED_ORIGINS',
     'http://localhost:4300,http://localhost:4200',
   );
-  const allowedOrigins = allowedOriginsRaw
+  const configuredOrigins = allowedOriginsRaw
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+  const localhostDevOrigins = isDevelopment
+    ? [/^http:\/\/localhost:\d+$/, /^http:\/\/127\.0\.0\.1:\d+$/]
+    : [];
 
   app.enableCors({
-    origin: allowedOrigins,
+    origin: [...configuredOrigins, ...localhostDevOrigins],
     credentials: true,
   });
-  logger.log(`CORS enabled for origins: ${allowedOrigins.join(', ')}`);
+  logger.log(
+    `CORS enabled for configured origins: ${configuredOrigins.join(', ')}`,
+  );
+  if (isDevelopment) {
+    logger.log('CORS development mode: allowing localhost and 127.0.0.1 ports');
+  }
 
   app.connectMicroservice<MicroserviceOptions>({
     transport: Transport.GRPC,

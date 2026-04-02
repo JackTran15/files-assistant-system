@@ -98,6 +98,14 @@ describe('RecursiveTextChunker', () => {
     }
   });
 
+  it('filters punctuation-only chunks such as horizontal rules', () => {
+    const text = 'Intro paragraph.\n\n---\n\nOutro paragraph.';
+    const { chunks } = chunker.chunk(text, { chunkSize: 4000, chunkOverlap: 0 });
+    expect(chunks.some((c) => c.trim() === '---')).toBe(false);
+    expect(chunks.some((c) => c.includes('Intro paragraph.'))).toBe(true);
+    expect(chunks.some((c) => c.includes('Outro paragraph.'))).toBe(true);
+  });
+
   it('returns one chunk for a single-line document', () => {
     const text = 'onlyone';
     const { chunks, totalChunks } = chunker.chunk(text);

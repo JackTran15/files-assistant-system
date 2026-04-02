@@ -6,6 +6,8 @@ import {
 } from './chunker.interface';
 import { ChunkingResult, ChunkWithOffset } from '../types/agent.types';
 
+const MEANINGFUL_CONTENT_RE = /[\p{L}\p{N}]/u;
+
 export class RecursiveTextChunker implements TextChunker {
   chunk(
     text: string,
@@ -31,7 +33,10 @@ export class RecursiveTextChunker implements TextChunker {
 
     chunkOffsets = this.applyOverlap(chunkOffsets, text, opts.chunkOverlap);
     chunkOffsets = chunkOffsets.filter(
-      (c) => c.content.length > 0 && /\S/.test(c.content),
+      (c) =>
+        c.content.length > 0 &&
+        /\S/.test(c.content) &&
+        MEANINGFUL_CONTENT_RE.test(c.content),
     );
 
     const chunks = chunkOffsets.map((c) => c.content);
