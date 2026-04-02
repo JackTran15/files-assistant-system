@@ -11,6 +11,7 @@ import { STORAGE_PORT, SEARCH_PORT, EMBEDDING_PORT } from '@files-assistant/core
 import { VoyageEmbeddingAdapter } from '../adapters/voyage-embedding.adapter';
 import { setSearchAdapter } from '../tools/search-files.tool';
 import { setWeaviateAdapter } from '../tools/read-file.tool';
+import { setChunkReader } from '../tools/read-chunk.tool';
 import { setAnthropicClient } from '../tools/extract-text.tool';
 import { filesAssistantAgentConfig } from '../agents/files-assistant.agent';
 import { toolLoggingHooks } from '../hooks/tool-logging.hooks';
@@ -84,6 +85,7 @@ export class AgentConfigModule implements OnModuleInit {
   onModuleInit() {
     setSearchAdapter(this.weaviateAdapter);
     setWeaviateAdapter(this.weaviateAdapter);
+    setChunkReader(this.weaviateAdapter);
     setAnthropicClient(new Anthropic());
   }
 }

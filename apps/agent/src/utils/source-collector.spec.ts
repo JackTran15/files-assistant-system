@@ -63,6 +63,41 @@ describe('SourceCollector', () => {
     expect(sources![0].score).toBe(0.9);
   });
 
+  it('should upgrade existing source content when a fuller chunk appears later', () => {
+    collector.collect({
+      results: [
+        {
+          fileId: 'f1',
+          fileName: 'doc.pdf',
+          chunkIndex: 0,
+          content: 'short',
+          score: 0.8,
+          metadata: {},
+        },
+      ],
+      query: 'test',
+    });
+
+    collector.collect({
+      _sourceChunks: [
+        {
+          fileId: 'f1',
+          fileName: 'doc.pdf',
+          chunkIndex: 0,
+          content: 'short but now full authoritative chunk content',
+          score: 0.8,
+          metadata: {},
+        },
+      ],
+    });
+
+    const sources = collector.toStreamSources();
+    expect(sources).toHaveLength(1);
+    expect(sources![0].citationContent).toBe(
+      'short but now full authoritative chunk content',
+    );
+  });
+
   it('should prefer exact source chunks over truncated tool results', () => {
     collector.collect({
       results: [
@@ -289,6 +324,32 @@ describe('createCollectorHooks', () => {
             chunkIndex: 0,
             content: 'text',
             score: 0.9,
+            metadata: {},
+          },
+        ],
+      },
+      error: undefined,
+      context: {} as never,
+    });
+
+    expect(collector.size).toBe(1);
+  });
+
+  it('should collect from readChunk tool end events', () => {
+    const collector = new SourceCollector();
+    const hooks = createCollectorHooks(collector);
+
+    hooks.onToolEnd!({
+      agent: {} as never,
+      tool: { name: 'readChunk' } as never,
+      output: {
+        _sourceChunks: [
+          {
+            fileId: 'f1',
+            fileName: 'doc.pdf',
+            chunkIndex: 2,
+            content: 'exact chunk text',
+            score: 1,
             metadata: {},
           },
         ],

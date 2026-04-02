@@ -1,4 +1,5 @@
 import { readFileTool } from '../tools/read-file.tool';
+import { readChunkTool } from '../tools/read-chunk.tool';
 import { searchFilesTool } from '../tools/search-files.tool';
 
 export const citationAgentConfig = {
@@ -11,5 +12,5 @@ Rules:
 - Never invent citations. No sources = return unchanged with note.
 - Number citations starting from 1 in the order that distinct source chunks first appear.
 - Do NOT add a references section — the UI renders source details automatically from structured metadata.`,
-  tools: [readFileTool, searchFilesTool],
+  tools: [readChunkTool, readFileTool, searchFilesTool],
 };

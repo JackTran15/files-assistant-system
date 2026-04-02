@@ -29,9 +29,11 @@ graph TB
         direction TB
         FA["FilesAssistant Agent - <i>claude-sonnet-4-20250514 (configurable)</i>"]
         T1["searchFiles - Hybrid BM25 + vector"]
-        T2["readFile - Full file content via stored chunks"]
+        T2["readChunk - Exact single chunk retrieval"]
+        T3["readFile - Document-level read with sampling"]
         FA --> T1
         FA --> T2
+        FA --> T3
     end
 
     subgraph IngestionPath["Ingestion Path"]
@@ -167,8 +169,10 @@ sequenceDiagram
         Agent->>Agent: streamText (decide which tools to call)
         Agent->>Weaviate: searchFiles (hybrid BM25 + vector)
         Weaviate-->>Agent: Search results with scores
-        Agent->>Weaviate: readFile (optional, full file via stored chunks)
-        Weaviate-->>Agent: File content chunks
+        Agent->>Weaviate: readChunk (optional, exact cited chunk)
+        Weaviate-->>Agent: Exact chunk content
+        Agent->>Weaviate: readFile (optional, whole-document tasks)
+        Weaviate-->>Agent: File content chunks (sampled when large)
         Note right of Agent: SourceCollector gathers tool outputs
     end
 
@@ -207,7 +211,7 @@ The FilesAssistant agent produces inline citations as part of its natural respon
 
 ```mermaid
 flowchart TD
-    Start(["User asks a question"]) --> Tools["Agent calls searchFiles / readFile"]
+    Start(["User asks a question"]) --> Tools["Agent calls searchFiles then readChunk/readFile as needed"]
     Tools --> Collector["SourceCollector captures tool outputs - (fileId, fileName, chunkIndex, score, content)"]
     Collector --> Generate["Agent generates response with inline [N] citations"]
     Generate --> Stream["Response streamed via gRPC"]
@@ -227,7 +231,7 @@ flowchart TD
 **How it works:**
 
 1. The agent's system instructions direct it to add `[N]` citation markers after claims that draw on tool results.
-2. A `SourceCollector` hooks into `onToolEnd` — it captures search results from `searchFiles` and chunk data from `readFile`.
+2. A `SourceCollector` hooks into `onToolEnd` — it captures search results from `searchFiles` and authoritative chunk data from `readChunk`/`readFile`.
 3. After streaming completes, collected sources are deduplicated (by `fileId:chunkIndex`), filtered (minimum score `0.5`), and attached to the final gRPC chunk as a structured `sources` array.
 4. The frontend renders source details automatically from this structured metadata — the agent does not produce a references section.
 

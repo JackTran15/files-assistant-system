@@ -57,6 +57,18 @@ export class SourceCollector {
         if (r.score > existing.score) {
           existing.score = r.score;
         }
+        const nextCitation = r.content || undefined;
+        if (
+          nextCitation &&
+          (!existing.citationContent ||
+            nextCitation.length > existing.citationContent.length)
+        ) {
+          existing.citationContent = nextCitation;
+          existing.excerpt =
+            nextCitation.length > MAX_EXCERPT_CHARS
+              ? nextCitation.slice(0, MAX_EXCERPT_CHARS) + '…'
+              : nextCitation;
+        }
         continue;
       }
 
@@ -97,7 +109,9 @@ export function createCollectorHooks(
     ...existingHooks,
     onToolEnd(args) {
       if (
-        (args.tool.name === 'searchFiles' || args.tool.name === 'readFile') &&
+        (args.tool.name === 'searchFiles' ||
+          args.tool.name === 'readFile' ||
+          args.tool.name === 'readChunk') &&
         args.output &&
         !args.error
       ) {

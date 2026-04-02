@@ -1,6 +1,6 @@
 # Files Assistant
 
-AI-powered files assistant with hybrid search (BM25 + vector) and Q&A over uploaded documents. Upload files (PDF, plain text, markdown, JSON), the system runs **extract → chunk → embed (Voyage AI) → store in Weaviate**, then a single VoltAgent answers questions using **`searchFiles`** (hybrid) and **`readFile`** tools.
+AI-powered files assistant with hybrid search (BM25 + vector) and Q&A over uploaded documents. Upload files (PDF, plain text, markdown, JSON), the system runs **extract → chunk → embed (Voyage AI) → store in Weaviate**, then a single VoltAgent answers questions using **`searchFiles`** (hybrid), **`readChunk`** (exact chunk retrieval), and **`readFile`** (document-level reading) tools.
 
 ## Architecture
 
@@ -158,7 +158,7 @@ graph TB
     end
 
     subgraph Agent["Agent (NestJS µsvc)"]
-        FA["FilesAssistant - searchFiles + readFile"]
+        FA["FilesAssistant - searchFiles + readChunk + readFile"]
         KAFKA_CON["Kafka Consumers"]
         GRPC_S["gRPC Server"]
     end
@@ -183,7 +183,7 @@ graph TB
 |---------|------|------------------|
 | **Web** | UI, file uploads, chat interface, SSE subscriptions | HTTP → Backend |
 | **Backend** | REST API, file metadata (Postgres), SSE streaming, Kafka fan-in/out, gRPC forwarding | HTTP, SSE, Kafka, gRPC |
-| **Agent** | Ingestion (extract → chunk → embed → store), chat (hybrid search + read file), streaming responses | Kafka, gRPC, Weaviate, Voyage AI |
+| **Agent** | Ingestion (extract → chunk → embed → store), chat (hybrid search + exact chunk read + document read), streaming responses | Kafka, gRPC, Weaviate, Voyage AI |
 
 ### Transport Architecture
 
@@ -386,7 +386,7 @@ Two flows: **Ingestion** (Kafka `file.uploaded` → extract → chunk → embed 
 
 | Role | Env variable | Default (code) | Used for |
 |------|--------------|----------------|----------|
-| Chat | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Main agent (`searchFiles`, `readFile`) |
+| Chat | `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Main agent (`searchFiles`, `readChunk`, `readFile`) |
 | PDF extraction | `ANTHROPIC_HAIKU_MODEL` | `claude-haiku-4-5-20251001` | PDF → text via Anthropic Messages + `document` block |
 | Embeddings | `VOYAGE_MODEL` | `voyage-3-lite` | Contextual chunk embeddings (1024 dims) + query embeddings via Voyage AI |
 
@@ -421,14 +421,16 @@ Triggered by `chat.request`. One **Agent** (`FilesAssistant`) runs with:
 
 | Tool | Purpose |
 |------|---------|
-| `searchFiles` | Hybrid search (BM25 + vector) over Weaviate `FileChunks` (tenant-scoped; optional file scope; alpha-tunable via `HYBRID_ALPHA`). |
-| `readFile` | Full file text via stored chunks (`getFileChunks`), capped by `MAX_FILE_CONTENT_CHARS`. |
+| `searchFiles` | Hybrid search (BM25 + vector) over Weaviate `FileChunks` (tenant-scoped; optional file scope; alpha-tunable via `HYBRID_ALPHA`). Returns model-friendly truncated text while preserving full chunk metadata for sources. |
+| `readChunk` | Exact single-chunk retrieval by `fileId` + `chunkIndex` + `tenantId` for citation-fidelity and authoritative preview text. |
+| `readFile` | Document-level read via stored chunks (`getFileChunks`), capped by `MAX_FILE_CONTENT_CHARS` and sampled for large files. |
 
 ```mermaid
 flowchart LR
     Q[chat.request] --> A[FilesAssistant]
     A --> T1[searchFiles]
-    A --> T2[readFile]
+    A --> T2[readChunk]
+    A --> T3[readFile]
     A --> G[gRPC StreamChatResponse]
     G --> S[SSE to client]
 ```

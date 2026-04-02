@@ -10,6 +10,7 @@ import {
   readFileTool,
   setWeaviateAdapter,
 } from '../../agent/src/tools/read-file.tool';
+import { setChunkReader } from '../../agent/src/tools/read-chunk.tool';
 import { filesAssistantAgentConfig } from '../../agent/src/agents/files-assistant.agent';
 import { StubSearchAdapter } from './dev-adapters';
 import { toolLoggingHooks } from '../../agent/src/hooks/tool-logging.hooks';
@@ -18,6 +19,7 @@ const stubSearch = new StubSearchAdapter();
 
 setSearchAdapter(stubSearch);
 setWeaviateAdapter(stubSearch);
+setChunkReader(stubSearch);
 
 const modelId =
   process.env['ANTHROPIC_MODEL'] || 'claude-sonnet-4-20250514';

@@ -159,4 +159,65 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
       );
     }
   }
+
+  async getChunk(
+    fileId: string,
+    tenantId: string,
+    chunkIndex: number,
+  ): Promise<SearchResult> {
+    try {
+      const collection = this.client.collections.get(FILE_CHUNKS_COLLECTION);
+      const filters = {
+        operator: 'And' as const,
+        filters: [
+          collection.filter.byProperty('tenantId').equal(tenantId),
+          collection.filter.byProperty('fileId').equal(fileId),
+          collection.filter.byProperty('chunkIndex').equal(chunkIndex),
+        ],
+        value: null,
+      };
+
+      const result = await collection.query.fetchObjects({
+        limit: 1,
+        filters,
+        returnProperties: [
+          'content',
+          'fileId',
+          'fileName',
+          'chunkIndex',
+          'startOffset',
+          'endOffset',
+        ],
+      });
+
+      const chunk = result.objects[0];
+      if (!chunk) {
+        throw new AgentProcessingError(
+          `Chunk ${chunkIndex} for file ${fileId} not found`,
+          'search',
+          false,
+        );
+      }
+
+      return {
+        fileId: String(chunk.properties.fileId),
+        fileName: String(chunk.properties.fileName),
+        chunkIndex: Number(chunk.properties.chunkIndex),
+        content: String(chunk.properties.content),
+        score: 1.0,
+        metadata: {
+          startOffset: chunk.properties.startOffset,
+          endOffset: chunk.properties.endOffset,
+        },
+      };
+    } catch (error) {
+      if (error instanceof AgentProcessingError) throw error;
+      throw new AgentProcessingError(
+        `Failed to fetch chunk ${chunkIndex} for file ${fileId}: ${error instanceof Error ? error.message : String(error)}`,
+        'search',
+        true,
+        error instanceof Error ? error : undefined,
+      );
+    }
+  }
 }

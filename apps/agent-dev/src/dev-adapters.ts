@@ -51,4 +51,19 @@ export class StubSearchAdapter implements SearchPort {
       },
     ];
   }
+
+  async getChunk(
+    fileId: string,
+    _tenantId: string,
+    chunkIndex: number,
+  ): Promise<SearchResult> {
+    return {
+      fileId,
+      fileName: 'quarterly-report-q4.pdf',
+      chunkIndex,
+      content: `Stub exact chunk content for index ${chunkIndex}.`,
+      score: 1.0,
+      metadata: { startOffset: chunkIndex * 40, endOffset: chunkIndex * 40 + 40 },
+    };
+  }
 }
