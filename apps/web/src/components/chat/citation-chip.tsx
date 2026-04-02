@@ -1,6 +1,8 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ChatResponseSource } from '@/types/chat.types';
 import { MarkdownPreviewTooltip } from '@/components/ui/markdown-preview-tooltip';
 import { cn } from '@/lib/cn';
+import { api } from '@/lib/api';
 
 interface CitationChipProps {
   refIndex: number;
@@ -22,6 +24,38 @@ function getCitationPreviewSearchText(source: ChatResponseSource): string | unde
 }
 
 export function CitationChip({ refIndex, source, isHighlighted, onClick }: CitationChipProps) {
+  const initialMarkdown = useMemo(
+    () => (source ? getCitationPreviewMarkdown(source) : undefined),
+    [source],
+  );
+  const [previewMarkdown, setPreviewMarkdown] = useState(initialMarkdown);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [hasFetchedPreview, setHasFetchedPreview] = useState(false);
+
+  useEffect(() => {
+    setPreviewMarkdown(initialMarkdown);
+    setIsLoadingPreview(false);
+    setHasFetchedPreview(false);
+  }, [initialMarkdown, source?.fileId, source?.chunkIndex]);
+
+  const handlePreviewOpen = useCallback(() => {
+    if (!source || hasFetchedPreview || isLoadingPreview) return;
+
+    setIsLoadingPreview(true);
+    api.files
+      .getChunk(source.fileId, source.chunkIndex)
+      .then((chunk) => {
+        setPreviewMarkdown(chunk.content);
+      })
+      .catch(() => {
+        // Keep the locally available text as fallback if the preview fetch fails.
+      })
+      .finally(() => {
+        setHasFetchedPreview(true);
+        setIsLoadingPreview(false);
+      });
+  }, [hasFetchedPreview, isLoadingPreview, source]);
+
   const chip = (
     <button
       type="button"
@@ -42,12 +76,12 @@ export function CitationChip({ refIndex, source, isHighlighted, onClick }: Citat
   );
 
   if (!source) return chip;
-  const markdown = getCitationPreviewMarkdown(source);
-  if (!markdown) return chip;
   return (
     <MarkdownPreviewTooltip
-      markdown={markdown}
+      markdown={previewMarkdown}
       searchText={getCitationPreviewSearchText(source)}
+      loading={isLoadingPreview && !previewMarkdown}
+      onOpen={handlePreviewOpen}
     >
       {chip}
     </MarkdownPreviewTooltip>

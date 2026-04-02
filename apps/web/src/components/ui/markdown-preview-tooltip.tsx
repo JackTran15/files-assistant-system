@@ -19,12 +19,15 @@ import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/cn';
 
 interface MarkdownPreviewTooltipProps {
-  markdown: string;
+  markdown?: string;
   searchText?: string;
   children: ReactNode;
   className?: string;
   maxHeight?: number;
   maxWidth?: number;
+  loading?: boolean;
+  onOpen?: () => void;
+  emptyStateText?: string;
 }
 
 const VIEWPORT_PADDING = 12;
@@ -180,6 +183,9 @@ export function MarkdownPreviewTooltip({
   className,
   maxHeight = 400,
   maxWidth = 480,
+  loading = false,
+  onOpen,
+  emptyStateText = 'Preview unavailable.',
 }: MarkdownPreviewTooltipProps) {
   const [visible, setVisible] = useState(false);
   const hideTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -191,7 +197,8 @@ export function MarkdownPreviewTooltip({
   const show = useCallback(() => {
     clearTimeout(hideTimeoutRef.current);
     setVisible(true);
-  }, []);
+    onOpen?.();
+  }, [onOpen]);
 
   const hide = useCallback(() => {
     hideTimeoutRef.current = setTimeout(() => setVisible(false), 200);
@@ -265,12 +272,18 @@ export function MarkdownPreviewTooltip({
             )}
             style={{ maxHeight }}
           >
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={components as never}
-            >
-              {markdown}
-            </ReactMarkdown>
+            {loading ? (
+              <p className="text-muted-foreground">Loading preview...</p>
+            ) : markdown ? (
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={components as never}
+              >
+                {markdown}
+              </ReactMarkdown>
+            ) : (
+              <p className="text-muted-foreground">{emptyStateText}</p>
+            )}
           </div>
         </div>,
         document.body,

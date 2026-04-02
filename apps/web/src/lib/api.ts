@@ -62,6 +62,14 @@ export const api = {
       return request<import('@/types/file.types').FileItem>(`/api/files/${id}`);
     },
 
+    getChunk(id: string, chunkIndex: number) {
+      return request<{
+        fileId: string;
+        chunkIndex: number;
+        content: string;
+      }>(`/api/files/${id}/chunks/${chunkIndex}`);
+    },
+
     async upload(file: File, tenantId: string) {
       const form = new FormData();
       form.append('file', file);

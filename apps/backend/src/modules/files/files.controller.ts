@@ -14,6 +14,7 @@ import {
   HttpStatus,
   Sse,
   ParseUUIDPipe,
+  ParseIntPipe,
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -30,6 +31,7 @@ import { FilesService } from './files.service';
 import { UploadFileDto } from './dto/upload-file.dto';
 import { SearchFilesDto } from './dto/search-files.dto';
 import { FileResponseDto, PaginatedFilesResponseDto } from './dto/file-response.dto';
+import { FileChunkResponseDto } from './dto/file-chunk-response.dto';
 
 const ALLOWED_MIME_TYPES = new Set([
   'application/pdf',
@@ -99,6 +101,18 @@ export class FilesController {
   @ApiResponse({ status: 200, type: FileResponseDto })
   async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return this.filesService.findOne(id);
+  }
+
+  @Get(':id/chunks/:chunkIndex')
+  @ApiOperation({ summary: 'Get full content for a file chunk' })
+  @ApiParam({ name: 'id', type: 'string' })
+  @ApiParam({ name: 'chunkIndex', type: 'number' })
+  @ApiResponse({ status: 200, type: FileChunkResponseDto })
+  async findChunk(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('chunkIndex', ParseIntPipe) chunkIndex: number,
+  ) {
+    return this.filesService.findChunk(id, chunkIndex);
   }
 
   @Delete(':id')

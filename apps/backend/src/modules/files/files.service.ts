@@ -236,6 +236,29 @@ export class FilesService {
     return file;
   }
 
+  async findChunk(fileId: string, chunkIndex: number): Promise<{
+    fileId: string;
+    chunkIndex: number;
+    content: string;
+  }> {
+    const chunk = await this.chunkRepo.findOne({
+      where: { fileId, index: chunkIndex },
+      select: ['fileId', 'index', 'content'],
+    });
+
+    if (!chunk) {
+      throw new NotFoundException(
+        `Chunk ${chunkIndex} for file ${fileId} not found`,
+      );
+    }
+
+    return {
+      fileId: chunk.fileId,
+      chunkIndex: chunk.index,
+      content: chunk.content,
+    };
+  }
+
   private static readonly NON_DELETABLE_STATUSES: FileStatus[] = [
     FileStatus.PROCESSING,
     FileStatus.EXTRACTING,
