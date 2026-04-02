@@ -19,7 +19,7 @@ This document provides a visual reference for the files-assistant system. Each s
 
 The system has two distinct runtime paths — **chat** and **ingestion** — with clearly separated responsibilities.
 
-**Chat** is handled by a single VoltAgent **FilesAssistant** agent backed by Anthropic Claude. It decides which tools to call based on the user's message and its system instructions.
+**Chat** is handled by a primary VoltAgent **FilesAssistant** agent backed by Anthropic Claude. It decides which tools to call based on the user's message and its system instructions. After the draft response is generated, an optional **CitationAgent** pass can remap inline `[N]` markers using the collected source list.
 
 **Ingestion** is a deterministic pipeline in `IngestionConsumer` (no LLM orchestration). It runs extract → chunk → embed → store sequentially when a `file.uploaded` Kafka event arrives.
 
@@ -196,7 +196,7 @@ sequenceDiagram
 
 **Key points:**
 
-- **Kafka** carries the initial `chat.request` (async, durable, retryable).
+- **Kafka** carries the initial `chat.request` (async and durable dispatch).
 - **gRPC `StreamChatResponse`** carries the response chunks (real-time, low-latency). The final chunk includes a `sources` array with file references and relevance scores.
 - The backend bridges gRPC chunks into SSE events for the browser client.
 - SSE includes a **heartbeat** every 15 seconds and a **120-second timeout**. A `POST /api/chat/cancel/:correlationId` endpoint allows explicit stream cancellation.
@@ -207,20 +207,21 @@ sequenceDiagram
 
 ## 4. Inline Citation & Source Collection
 
-The FilesAssistant agent produces inline citations as part of its natural response generation, then a lightweight validator/repair pass ensures claims only reference real evidence IDs before the final chunk is emitted.
+The FilesAssistant agent produces inline citations as part of its natural response generation. If configured, a CitationAgent remaps citation placement against real source chunks before a lightweight validator/repair pass ensures claims only reference valid evidence IDs in the final chunk.
 
 ```mermaid
 flowchart TD
     Start(["User asks a question"]) --> Tools["Agent calls searchFiles then readChunk/readFile as needed"]
     Tools --> Collector["SourceCollector captures tool outputs - (fileId, fileName, chunkIndex, score, content)"]
-    Collector --> Generate["Agent generates response with inline [N] citations"]
-    Generate --> Validate["Validator repairs/drops invalid evidence links"]
+    Collector --> Generate["FilesAssistant generates draft response with inline [N] citations"]
+    Generate --> Remap["Optional CitationAgent remaps [N] markers using SOURCES"]
+    Remap --> Validate["Validator repairs/drops invalid evidence links"]
     Validate --> Stream["Response streamed via gRPC"]
     Stream --> Final["Final chunk includes sources plus evidence[] and claims[]"]
 
     subgraph SourceDedup["Source Deduplication"]
         direction TB
-        Raw["Raw tool results"] --> Filter["Filter: score >= 0.5"]
+        Raw["Raw tool results"] --> Filter["Filter: finite score (>= 0)"]
         Filter --> Dedup["Deduplicate by fileId:chunkIndex"]
         Dedup --> Enrich["Add excerpt, pageNumber"]
     end
@@ -231,11 +232,12 @@ flowchart TD
 
 **How it works:**
 
-1. The agent's system instructions direct it to add `[N]` citation markers after claims that draw on tool results.
+1. FilesAssistant instructions direct the model to add `[N]` citation markers after claims that draw on tool results.
 2. A `SourceCollector` hooks into `onToolEnd` — it captures search results from `searchFiles` and authoritative chunk data from `readChunk`/`readFile`.
-3. On finalization, the agent builds `evidence[]` (with stable `E1`, `E2`, ...) and `claims[]` mappings (`claimText -> evidenceIds[]`) from the rendered answer and collected chunks.
-4. A validator/repair pass removes invalid evidence references and emits warnings for dropped mappings.
-5. The final gRPC chunk includes legacy `sources` plus structured `evidence[]` and `claims[]`; the frontend prefers structured mapping when present.
+3. If `CITATION_AGENT` is configured and sources exist, a second-pass remap rewrites citation placement using the same source list.
+4. On finalization, the agent builds `evidence[]` (with stable `E1`, `E2`, ...) and `claims[]` mappings (`claimText -> evidenceIds[]`) from the rendered answer and collected chunks.
+5. A validator/repair pass removes invalid evidence references and emits warnings for dropped mappings.
+6. The final gRPC chunk includes legacy `sources` plus structured `evidence[]` and `claims[]`; the frontend prefers structured mapping when present.
 
 **Citation rules (from agent instructions):**
 
@@ -248,7 +250,7 @@ flowchart TD
 
 ## 5. Error and Degradation Flows
 
-The system is designed to degrade gracefully. Chat errors are surfaced through the gRPC/SSE path. Ingestion failures are published as `file.failed` with a specific `stage`. Poison messages are routed to dead-letter queues.
+The system is designed to degrade gracefully. Chat errors are surfaced through the gRPC/SSE path. Ingestion failures are published as `file.failed` with a specific `stage`. Dead-letter topics are defined in shared contracts; explicit runtime routing into DLQ topics is not currently wired in the active consumers/adapters.
 
 ```mermaid
 flowchart TD
@@ -262,18 +264,15 @@ flowchart TD
 
     Agent -- "Agent error / LLM failure" --> ErrorMsg(["Error message streamed - to client via gRPC/SSE"])
 
-    subgraph DLQ["Dead-Letter Queue Flow"]
+    subgraph DLQ["Dead-Letter Topics (defined contract)"]
         direction TB
-        Poison(["Poison message - repeated processing failures"]) --> DLQRoute{"Source topic?"}
-        DLQRoute -- "file.uploaded" --> DLQF["dlq.file.uploaded"]
-        DLQRoute -- "file.extracted" --> DLQE["dlq.file.extracted"]
-        DLQRoute -- "chat.request" --> DLQC["dlq.chat.request"]
+        DLQF["dlq.file.uploaded"]
+        DLQE["dlq.file.extracted"]
+        DLQC["dlq.chat.request"]
         DLQF --> Monitor["Ops monitoring & - manual inspection"]
         DLQE --> Monitor
         DLQC --> Monitor
     end
-
-    ErrorMsg -.->|"if caused by - poison message"| Poison
 ```
 
 **Chat degradation:**
@@ -292,7 +291,7 @@ flowchart TD
 | `chunking` | Zero chunks produced from extracted text | `file.failed` with `stage: chunking` |
 | `embedding` | Voyage API failure or Weaviate storage error | `file.failed` with `stage: embedding` |
 
-**DLQ topics:**
+**DLQ topics (defined in event contracts):**
 
 - `dlq.file.uploaded` — failed file ingestion messages
 - `dlq.file.extracted` — failed extracted text processing
@@ -342,9 +341,9 @@ graph LR
     T4 -->|"consume"| Backend
     T5 -->|"consume"| Backend
 
-    Agents -.->|"on failure"| T6
-    Agents -.->|"on failure"| T7
-    Agents -.->|"on failure"| T8
+    Agents -.->|"optional integration"| T6
+    Agents -.->|"optional integration"| T7
+    Agents -.->|"optional integration"| T8
 
     Agents ==>|"StreamChatResponse - (response chunks)"| G1
     G1 ==>|"forward chunks"| Backend
@@ -360,7 +359,7 @@ graph LR
 |-----------|-----------|--------------|---------|
 | **Kafka** | Backend -> Agent | `chat.request`, `file.uploaded` | Durable task dispatch |
 | **Kafka** | Agent -> Backend | `file.extracted`, `file.ready`, `file.failed` | Async status notifications |
-| **Kafka** | Agent -> DLQ | `dlq.chat.request`, `dlq.file.uploaded`, `dlq.file.extracted` | Poison message quarantine |
+| **Kafka** | Agent -> DLQ | `dlq.chat.request`, `dlq.file.uploaded`, `dlq.file.extracted` | Defined topic namespace (routing integration optional) |
 | **gRPC** | Agent -> Backend | `ChatStream.StreamChatResponse` | Real-time response streaming |
 | **SSE** | Backend -> Client | (HTTP event stream) | Browser-compatible push |
 
@@ -368,13 +367,12 @@ graph LR
 
 | Group | Service | Subscribes to |
 |-------|---------|---------------|
-| `agent-ingestion` | Agent | `file.uploaded` |
-| `agent-chat` | Agent | `chat.request` |
+| `agent-workers` | Agent | `file.uploaded`, `chat.request` |
 | `backend-notifications` | Backend | `file.ready`, `file.failed`, `file.extracted` |
 
 **Why the split?**
 
-- **Kafka** provides durability, retry semantics, and consumer-group scaling for work that doesn't need instant delivery.
+- **Kafka** provides durability and consumer-group scaling for work that doesn't need instant delivery.
 - **gRPC** provides client-streaming with backpressure for response chunks where latency matters.
 - **SSE** bridges gRPC to the browser, which cannot consume gRPC directly.
 
