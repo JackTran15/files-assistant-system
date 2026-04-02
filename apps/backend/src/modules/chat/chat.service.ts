@@ -12,10 +12,19 @@ import { KafkaProducerService } from '../kafka/kafka.producer';
 import {
   createChatRequestEvent,
   ChatResponseEvent,
+  TOPICS,
 } from '@files-assistant/events';
+import { logMetric } from '../../common/observability/metric-log';
 
 const COMPLETE_THINKING_RE = /<thinking>[\s\S]*?<\/thinking>\s*/g;
 const PARTIAL_THINKING_RE = /<thinking>[\s\S]*$/;
+const CHAT_STREAM_TIMEOUT_MS = 120000;
+
+interface StreamRuntimeState {
+  createdAt: number;
+  lastChunkAt: number;
+  finalized: boolean;
+}
 
 function stripThinkingBlocks(text: string): string {
   return text.replace(COMPLETE_THINKING_RE, '').replace(PARTIAL_THINKING_RE, '').trim();
@@ -43,6 +52,7 @@ export class ChatService {
   private chunkAccumulator = new Map<string, string[]>();
   private streamTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private correlationConversationMap = new Map<string, string>();
+  private streamState = new Map<string, StreamRuntimeState>();
 
   constructor(
     @InjectRepository(ConversationEntity)
@@ -91,7 +101,7 @@ export class ChatService {
     const correlationId = uuidv4();
 
     await this.kafkaProducer.publish(
-      'chat.request',
+      TOPICS.CHAT_REQUEST,
       correlationId,
       createChatRequestEvent({
         correlationId,
@@ -105,11 +115,20 @@ export class ChatService {
     this.responseStreams.set(correlationId, new Subject<ChatResponseEvent>());
     this.chunkAccumulator.set(correlationId, []);
     this.correlationConversationMap.set(correlationId, conversationId);
+    this.streamState.set(correlationId, {
+      createdAt: Date.now(),
+      lastChunkAt: Date.now(),
+      finalized: false,
+    });
+    logMetric(this.logger, 'chat_stream_created', {
+      correlationId,
+      conversationId,
+      tenantId: dto.tenantId,
+    });
 
     const timeoutHandle = setTimeout(() => {
-      this.logger.warn(`Stream timeout for correlationId=${correlationId}`);
-      this.cleanupStream(correlationId);
-    }, 120000);
+      this.handleStreamTimeout(correlationId);
+    }, CHAT_STREAM_TIMEOUT_MS);
     this.streamTimeouts.set(correlationId, timeoutHandle);
 
     return { correlationId, conversationId };
@@ -123,7 +142,10 @@ export class ChatService {
 
   async handleResponseChunk(event: ChatResponseEvent): Promise<void> {
     const stream = this.responseStreams.get(event.correlationId);
-    if (!stream) return;
+    const streamState = this.streamState.get(event.correlationId);
+    if (!stream || !streamState || streamState.finalized) return;
+
+    streamState.lastChunkAt = Date.now();
 
     if (event.chunk) {
       const chunks = this.chunkAccumulator.get(event.correlationId);
@@ -133,6 +155,7 @@ export class ChatService {
     stream.next(event);
 
     if (event.done) {
+      streamState.finalized = true;
       const chunks = this.chunkAccumulator.get(event.correlationId) ?? [];
       const fullContent = stripThinkingBlocks(chunks.join(''));
       const renderedAnswer = event.renderedAnswer
@@ -160,12 +183,20 @@ export class ChatService {
       }
 
       this.cleanupStream(event.correlationId);
+      logMetric(this.logger, 'chat_stream_completed', {
+        correlationId: event.correlationId,
+        conversationId: event.conversationId,
+        chunkCount: chunks.length,
+        durationMs: Date.now() - streamState.createdAt,
+      });
     }
   }
 
   async cancelStream(correlationId: string): Promise<void> {
     const stream = this.responseStreams.get(correlationId);
-    if (!stream) return;
+    const streamState = this.streamState.get(correlationId);
+    if (!stream || !streamState || streamState.finalized) return;
+    streamState.finalized = true;
 
     const chunks = this.chunkAccumulator.get(correlationId) ?? [];
     const partialContent = chunks.join('');
@@ -202,6 +233,10 @@ export class ChatService {
 
     this.cleanupStream(correlationId);
     this.logger.log(`Stream cancelled: correlationId=${correlationId}`);
+    logMetric(this.logger, 'chat_stream_cancelled', {
+      correlationId,
+      durationMs: Date.now() - streamState.createdAt,
+    });
   }
 
   cleanupStream(correlationId: string): void {
@@ -219,6 +254,30 @@ export class ChatService {
 
     this.chunkAccumulator.delete(correlationId);
     this.correlationConversationMap.delete(correlationId);
+    this.streamState.delete(correlationId);
+  }
+
+  private handleStreamTimeout(correlationId: string): void {
+    const stream = this.responseStreams.get(correlationId);
+    const streamState = this.streamState.get(correlationId);
+    if (!stream || !streamState || streamState.finalized) return;
+
+    streamState.finalized = true;
+    this.logger.warn(`Stream timeout for correlationId=${correlationId}`);
+    logMetric(this.logger, 'chat_stream_timeout', {
+      correlationId,
+      idleMs: Date.now() - streamState.lastChunkAt,
+      durationMs: Date.now() - streamState.createdAt,
+    });
+    stream.next({
+      correlationId,
+      conversationId: this.correlationConversationMap.get(correlationId) ?? '',
+      chunk: '[Error: Stream timeout]',
+      done: true,
+      cancelled: true,
+      timestamp: new Date().toISOString(),
+    });
+    this.cleanupStream(correlationId);
   }
 
   async getHistory(tenantId: string, page = 1, limit = 20) {

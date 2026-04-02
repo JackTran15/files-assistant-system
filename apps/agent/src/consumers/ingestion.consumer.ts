@@ -12,6 +12,7 @@ import {
 } from '@files-assistant/core';
 import { KafkaEventAdapter } from '../adapters/kafka-event.adapter';
 import { extractTextTool } from '../tools/extract-text.tool';
+import { logMetric } from '../utils/metric-log';
 
 const CHUNK_SIZE = 1500;
 const CHUNK_OVERLAP = 200;
@@ -38,6 +39,11 @@ export class IngestionConsumer {
       `[${event.fileId}] Starting ingestion: ${event.fileName} (tenant=${event.tenantId}, mime=${event.mimeType})`,
     );
     this.logger.debug(`[${event.fileId}] Source storage path: ${event.storagePath}`);
+    logMetric(this.logger, 'ingestion_started', {
+      fileId: event.fileId,
+      tenantId: event.tenantId,
+      mimeType: event.mimeType,
+    });
 
     try {
       this.logger.log(
@@ -119,6 +125,11 @@ export class IngestionConsumer {
       this.logger.log(
         `[${event.fileId}] Ingestion complete in ${Date.now() - startedAt}ms`,
       );
+      logMetric(this.logger, 'ingestion_completed', {
+        fileId: event.fileId,
+        tenantId: event.tenantId,
+        durationMs: Date.now() - startedAt,
+      });
     } catch (error) {
       const stage =
         error instanceof AgentProcessingError ? error.stage : 'extraction';
@@ -134,11 +145,33 @@ export class IngestionConsumer {
         error: error instanceof Error ? error.message : String(error),
         stage: validStage,
       });
+      if (error instanceof AgentProcessingError && !error.retryable) {
+        try {
+          await this.kafkaEventAdapter.publishDlq('FILE_UPLOADED', event.fileId, {
+            event,
+            reason: error.message,
+            stage: validStage,
+            retryable: error.retryable,
+            timestamp: new Date().toISOString(),
+          });
+        } catch (dlqError) {
+          this.logger.error(
+            `[${event.fileId}] Failed to publish ingestion DLQ`,
+            dlqError instanceof Error ? dlqError.stack : String(dlqError),
+          );
+        }
+      }
 
       this.logger.error(
         `[${event.fileId}] Ingestion failed at ${validStage} after ${Date.now() - startedAt}ms`,
         error,
       );
+      logMetric(this.logger, 'ingestion_failed', {
+        fileId: event.fileId,
+        tenantId: event.tenantId,
+        stage: validStage,
+        durationMs: Date.now() - startedAt,
+      });
     }
   }
 }

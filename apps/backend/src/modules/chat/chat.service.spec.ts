@@ -181,4 +181,35 @@ describe('ChatService', () => {
       );
     });
   });
+
+  describe('stream lifecycle guards', () => {
+    it('emits terminal timeout event and cleans up stream state', async () => {
+      jest.useFakeTimers();
+      const { correlationId } = await service.sendMessage({
+        message: 'timeout me',
+        tenantId: 'tenant-1',
+      });
+
+      const stream = service.getResponseStream(correlationId);
+      expect(stream).toBeDefined();
+
+      const events: Array<{ done: boolean; cancelled?: boolean; chunk: string }> =
+        [];
+      const sub = stream!.subscribe((event) => {
+        events.push({
+          done: event.done,
+          cancelled: event.cancelled,
+          chunk: event.chunk,
+        });
+      });
+
+      jest.advanceTimersByTime(120001);
+      await Promise.resolve();
+
+      expect(events.some((e) => e.done && e.cancelled)).toBe(true);
+      expect(service.getResponseStream(correlationId)).toBeUndefined();
+      sub.unsubscribe();
+      jest.useRealTimers();
+    });
+  });
 });

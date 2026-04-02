@@ -8,6 +8,7 @@ import {
   APIError,
 } from '@anthropic-ai/sdk';
 import { AgentProcessingError } from '@files-assistant/core';
+import { withRetry, withCircuitBreaker } from '../utils/resilience';
 
 let anthropicClient: Anthropic | null = null;
 
@@ -33,29 +34,47 @@ async function extractPdfWithHaiku(
     process.env['ANTHROPIC_HAIKU_MODEL'] || 'claude-haiku-4-5-20251001';
 
   try {
-    const response = await anthropicClient.messages.create({
-      model,
-      max_tokens: 16384,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: buffer.toString('base64'),
-              },
-            },
-            {
-              type: 'text',
-              text: 'Extract all text content from this document. Preserve the structure: headings, paragraphs, lists, and tables. For tables, use markdown table format. Do not summarize or interpret — extract verbatim.',
-            },
-          ],
-        },
-      ],
-    });
+    const response = await withCircuitBreaker(
+      'anthropic_haiku_extract',
+      async () =>
+        withRetry(
+          () =>
+            anthropicClient!.messages.create({
+              model,
+              max_tokens: 16384,
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'document',
+                      source: {
+                        type: 'base64',
+                        media_type: 'application/pdf',
+                        data: buffer.toString('base64'),
+                      },
+                    },
+                    {
+                      type: 'text',
+                      text: 'Extract all text content from this document. Preserve the structure: headings, paragraphs, lists, and tables. For tables, use markdown table format. Do not summarize or interpret — extract verbatim.',
+                    },
+                  ],
+                },
+              ],
+            }),
+          {
+            retries: 3,
+            baseDelayMs: 300,
+            maxDelayMs: 3000,
+            jitterMs: 200,
+            shouldRetry: (error) =>
+              error instanceof RateLimitError ||
+              error instanceof APIConnectionTimeoutError ||
+              error instanceof APIError,
+          },
+        ),
+      { failureThreshold: 5, openMs: 10000, stage: 'extraction' },
+    );
 
     const textBlock = response.content.find((b) => b.type === 'text');
     if (!textBlock || textBlock.type !== 'text' || !textBlock.text.trim()) {

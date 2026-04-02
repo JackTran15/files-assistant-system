@@ -61,6 +61,7 @@ describe('IngestionConsumer', () => {
         return Promise.resolve();
       }),
       publishFileFailed: jest.fn().mockResolvedValue(undefined),
+      publishDlq: jest.fn().mockResolvedValue(undefined),
     } as any;
 
     storageAdapter = {
@@ -160,6 +161,15 @@ describe('IngestionConsumer', () => {
       stage: 'extraction',
     });
     expect(kafkaAdapter.publishFileReady).not.toHaveBeenCalled();
+    expect(kafkaAdapter.publishDlq).toHaveBeenCalledWith(
+      'FILE_UPLOADED',
+      'file-1',
+      expect.objectContaining({
+        reason: 'PDF parse failed',
+        stage: 'extraction',
+        retryable: false,
+      }),
+    );
   });
 
   // 4. Chunking failure (zero chunks) publishes file.failed stage chunking
@@ -177,6 +187,14 @@ describe('IngestionConsumer', () => {
       expect.objectContaining({ stage: 'chunking' }),
     );
     expect(storageAdapter.storeChunks).not.toHaveBeenCalled();
+    expect(kafkaAdapter.publishDlq).toHaveBeenCalledWith(
+      'FILE_UPLOADED',
+      'file-1',
+      expect.objectContaining({
+        stage: 'chunking',
+        retryable: false,
+      }),
+    );
   });
 
   // 5a. Embedding failure publishes file.failed stage embedding

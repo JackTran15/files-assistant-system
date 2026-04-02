@@ -11,6 +11,7 @@ import {
   ensureFileChunksCollection,
   FILE_CHUNKS_COLLECTION,
 } from '@files-assistant/weaviate';
+import { withCircuitBreaker, withRetry } from '../utils/resilience';
 
 @Injectable()
 export class WeaviateStorageAdapter implements StoragePort, OnModuleInit {
@@ -64,10 +65,25 @@ export class WeaviateStorageAdapter implements StoragePort, OnModuleInit {
           endOffset: metadata[i].endOffset,
         };
 
-        await collection.data.insert(
-          vectors?.[i]
-            ? { properties, vectors: vectors[i] }
-            : { properties },
+        await withCircuitBreaker(
+          'weaviate_store_chunk',
+          async () =>
+            withRetry(
+              () =>
+                collection.data.insert(
+                  vectors?.[i]
+                    ? { properties, vectors: vectors[i] }
+                    : { properties },
+                ),
+              {
+                retries: 2,
+                baseDelayMs: 200,
+                maxDelayMs: 1500,
+                jitterMs: 100,
+                shouldRetry: () => true,
+              },
+            ),
+          { failureThreshold: 5, openMs: 10000, stage: 'embedding' },
         );
       }
 
@@ -86,8 +102,23 @@ export class WeaviateStorageAdapter implements StoragePort, OnModuleInit {
   async deleteByFileId(fileId: string, _tenantId: string): Promise<void> {
     try {
       const collection = this.client.collections.get(FILE_CHUNKS_COLLECTION);
-      await collection.data.deleteMany(
-        collection.filter.byProperty('fileId').equal(fileId),
+      await withCircuitBreaker(
+        'weaviate_delete_by_file',
+        async () =>
+          withRetry(
+            () =>
+              collection.data.deleteMany(
+                collection.filter.byProperty('fileId').equal(fileId),
+              ),
+            {
+              retries: 2,
+              baseDelayMs: 200,
+              maxDelayMs: 1500,
+              jitterMs: 100,
+              shouldRetry: () => true,
+            },
+          ),
+        { failureThreshold: 5, openMs: 10000, stage: 'embedding' },
       );
     } catch (error: unknown) {
       this.logger.warn(

@@ -2,6 +2,9 @@ import { z } from 'zod';
 
 /** Documented env surface for the agent service (optional validation wiring). */
 export const agentConfigSchema = z.object({
+  AGENT_WORKER_MODE: z.enum(['all', 'chat', 'ingestion']).default('all'),
+  AGENT_CONSUMER_GROUP_ID: z.string().default('agent-workers'),
+  AGENT_KAFKA_PARTITIONS_CONCURRENTLY: z.coerce.number().default(3),
   REDPANDA_BROKER: z.string().default('localhost:19092'),
   ANTHROPIC_API_KEY: z.string(),
   ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-20250514'),

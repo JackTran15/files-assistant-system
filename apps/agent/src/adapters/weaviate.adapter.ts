@@ -13,6 +13,7 @@ import {
   EMBEDDING_PORT,
   EmbeddingPort,
 } from '@files-assistant/core';
+import { withRetry, withCircuitBreaker } from '../utils/resilience';
 
 const DEFAULT_HYBRID_ALPHA = 0.75;
 
@@ -70,20 +71,35 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
       const collection = this.client.collections.get(FILE_CHUNKS_COLLECTION);
       const queryVector = await this.embeddingAdapter.embedQuery(query);
 
-      const result = await collection.query.hybrid(query, {
-        limit,
-        alpha: this.alpha,
-        vector: queryVector,
-        filters: this.buildFilters(collection, tenantId, fileIds),
-        returnProperties: [
-          'content',
-          'fileId',
-          'fileName',
-          'chunkIndex',
-          'startOffset',
-          'endOffset',
-        ],
-      });
+      const result = await withCircuitBreaker(
+        'weaviate_hybrid_search',
+        async () =>
+          withRetry(
+            () =>
+              collection.query.hybrid(query, {
+                limit,
+                alpha: this.alpha,
+                vector: queryVector,
+                filters: this.buildFilters(collection, tenantId, fileIds),
+                returnProperties: [
+                  'content',
+                  'fileId',
+                  'fileName',
+                  'chunkIndex',
+                  'startOffset',
+                  'endOffset',
+                ],
+              }),
+            {
+              retries: 2,
+              baseDelayMs: 200,
+              maxDelayMs: 1500,
+              jitterMs: 100,
+              shouldRetry: () => true,
+            },
+          ),
+        { failureThreshold: 5, openMs: 10000, stage: 'search' },
+      );
 
       return result.objects.map((obj) => ({
         fileId: String(obj.properties.fileId),
@@ -123,18 +139,33 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
         value: null,
       };
 
-      const result = await collection.query.fetchObjects({
-        limit: 500,
-        filters,
-        returnProperties: [
-          'content',
-          'fileId',
-          'fileName',
-          'chunkIndex',
-          'startOffset',
-          'endOffset',
-        ],
-      });
+      const result = await withCircuitBreaker(
+        'weaviate_fetch_file_chunks',
+        async () =>
+          withRetry(
+            () =>
+              collection.query.fetchObjects({
+                limit: 500,
+                filters,
+                returnProperties: [
+                  'content',
+                  'fileId',
+                  'fileName',
+                  'chunkIndex',
+                  'startOffset',
+                  'endOffset',
+                ],
+              }),
+            {
+              retries: 2,
+              baseDelayMs: 200,
+              maxDelayMs: 1500,
+              jitterMs: 100,
+              shouldRetry: () => true,
+            },
+          ),
+        { failureThreshold: 5, openMs: 10000, stage: 'search' },
+      );
 
       return result.objects
         .map((obj) => ({
@@ -177,18 +208,33 @@ export class WeaviateAdapter implements SearchPort, OnModuleInit {
         value: null,
       };
 
-      const result = await collection.query.fetchObjects({
-        limit: 1,
-        filters,
-        returnProperties: [
-          'content',
-          'fileId',
-          'fileName',
-          'chunkIndex',
-          'startOffset',
-          'endOffset',
-        ],
-      });
+      const result = await withCircuitBreaker(
+        'weaviate_fetch_chunk',
+        async () =>
+          withRetry(
+            () =>
+              collection.query.fetchObjects({
+                limit: 1,
+                filters,
+                returnProperties: [
+                  'content',
+                  'fileId',
+                  'fileName',
+                  'chunkIndex',
+                  'startOffset',
+                  'endOffset',
+                ],
+              }),
+            {
+              retries: 2,
+              baseDelayMs: 200,
+              maxDelayMs: 1500,
+              jitterMs: 100,
+              shouldRetry: () => true,
+            },
+          ),
+        { failureThreshold: 5, openMs: 10000, stage: 'search' },
+      );
 
       const chunk = result.objects[0];
       if (!chunk) {

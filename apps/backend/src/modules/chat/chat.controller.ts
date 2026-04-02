@@ -1,7 +1,7 @@
 import { Controller, Post, Get, Query, Body, Sse, Param, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Observable, EMPTY, merge, interval, of } from 'rxjs';
-import { map, timeout, finalize, catchError } from 'rxjs/operators';
+import { map, timeout, finalize, catchError, filter, share, take, takeUntil } from 'rxjs/operators';
 import { ChatService } from './chat.service';
 import { ChatMessageDto } from './dto/chat-message.dto';
 import { ChatResponseDto } from './dto/chat-response.dto';
@@ -25,21 +25,37 @@ export class ChatController {
     const responseStream = this.chatService.getResponseStream(correlationId);
     if (!responseStream) return EMPTY;
 
+    const streamEvents$ = responseStream.pipe(
+      timeout({ first: 120000, each: 120000 }),
+      catchError(() =>
+        of({
+          correlationId,
+          conversationId: '',
+          chunk: '[Error: Stream timeout]',
+          done: true,
+          cancelled: true,
+          timestamp: new Date().toISOString(),
+        }),
+      ),
+      finalize(() => this.chatService.cleanupStream(correlationId)),
+      share(),
+    );
+
+    const terminal$ = streamEvents$.pipe(
+      filter((event) => event.done),
+      take(1),
+    );
+
     const heartbeat$ = interval(15000).pipe(
+      takeUntil(terminal$),
       map(() => ({ data: { type: 'heartbeat' } } as MessageEvent)),
     );
 
     return merge(
-      responseStream.pipe(
+      streamEvents$.pipe(
         map((event) => ({ data: event } as MessageEvent)),
       ),
       heartbeat$,
-    ).pipe(
-      timeout(120000),
-      catchError(() =>
-        of({ data: { type: 'error', message: 'Stream timeout' } } as MessageEvent),
-      ),
-      finalize(() => this.chatService.cleanupStream(correlationId)),
     );
   }
 

@@ -15,6 +15,7 @@ import {
   cleanAssistantContent,
   extractThinkingAndContent,
 } from '@/lib/clean-content';
+import { emitClientMetric } from '@/lib/telemetry';
 
 const TENANT_ID = import.meta.env.VITE_TENANT_ID ?? 'default-tenant';
 
@@ -160,7 +161,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       const sseUrl = api.chat.streamUrl(correlationId);
+      emitClientMetric('web_chat_stream_start', { correlationId, conversationId });
       const connection = createSSEConnection(sseUrl, {
+        onOpen: () => emitClientMetric('web_sse_open', { correlationId }),
+        onReconnectAttempt: (attempt) =>
+          emitClientMetric('web_sse_reconnect_attempt', {
+            correlationId,
+            attempt,
+          }),
         onMessage: (data) => {
           const event = data as ChatResponseEvent;
 
@@ -179,12 +187,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
           }
         },
         onError: () => {
+          const partial = get().streamingContent;
+          if (partial) {
+            set((state) => ({
+              messages: [
+                ...state.messages,
+                {
+                  id: `msg-connection-drop-${Date.now()}`,
+                  conversationId: state.activeConversationId ?? '',
+                  role: ChatRole.ASSISTANT,
+                  content: partial,
+                  createdAt: new Date().toISOString(),
+                },
+              ],
+            }));
+          }
+          emitClientMetric('web_sse_error', { correlationId, hadPartial: !!partial });
           set({
             isStreaming: false,
             isThinking: false,
             error: 'Connection lost. Please try again.',
             activeCorrelationId: null,
             activeSSE: null,
+            _rawStream: '',
+            streamingContent: '',
+            streamingThinking: null,
+            streamingSources: [],
           });
           connection.close();
         },
@@ -192,6 +220,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       set({ activeCorrelationId: correlationId, activeSSE: connection });
     } catch (err) {
+      emitClientMetric('web_chat_send_failed');
       set({
         isStreaming: false,
         isThinking: false,
@@ -227,6 +256,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ],
       }));
     }
+    emitClientMetric('web_chat_stream_cancelled', {
+      correlationId: activeCorrelationId ?? undefined,
+    });
 
     set({
       _rawStream: '',
@@ -305,6 +337,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeCorrelationId: null,
         activeSSE: null,
       };
+    });
+    emitClientMetric('web_chat_stream_completed', {
+      correlationId: event?.correlationId,
+      hasEvidence: !!event?.evidence?.length,
     });
   },
 

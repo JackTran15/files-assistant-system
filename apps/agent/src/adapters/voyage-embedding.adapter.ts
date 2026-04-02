@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { VoyageAIClient } from 'voyageai';
 import { EmbeddingPort, AgentProcessingError } from '@files-assistant/core';
+import { withRetry, withCircuitBreaker } from '../utils/resilience';
 
 const MAX_BATCH_SIZE = 128;
 const DEFAULT_MODEL = 'voyage-3-lite';
@@ -32,11 +33,26 @@ export class VoyageEmbeddingAdapter implements EmbeddingPort, OnModuleInit {
 
       for (let i = 0; i < texts.length; i += MAX_BATCH_SIZE) {
         const batch = texts.slice(i, i + MAX_BATCH_SIZE);
-        const response = await this.client.embed({
-          input: batch,
-          model: this.model,
-          inputType: 'document',
-        });
+        const response = await withCircuitBreaker(
+          'voyage_embed_documents',
+          async () =>
+            withRetry(
+              () =>
+                this.client.embed({
+                  input: batch,
+                  model: this.model,
+                  inputType: 'document',
+                }),
+              {
+                retries: 3,
+                baseDelayMs: 250,
+                maxDelayMs: 2500,
+                jitterMs: 150,
+                shouldRetry: () => true,
+              },
+            ),
+          { failureThreshold: 5, openMs: 10000, stage: 'embedding' },
+        );
 
         if (!response.data) {
           throw new Error('Voyage API returned empty response');
@@ -65,11 +81,26 @@ export class VoyageEmbeddingAdapter implements EmbeddingPort, OnModuleInit {
 
   async embedQuery(text: string): Promise<number[]> {
     try {
-      const response = await this.client.embed({
-        input: [text],
-        model: this.model,
-        inputType: 'query',
-      });
+      const response = await withCircuitBreaker(
+        'voyage_embed_query',
+        async () =>
+          withRetry(
+            () =>
+              this.client.embed({
+                input: [text],
+                model: this.model,
+                inputType: 'query',
+              }),
+            {
+              retries: 2,
+              baseDelayMs: 200,
+              maxDelayMs: 2000,
+              jitterMs: 100,
+              shouldRetry: () => true,
+            },
+          ),
+        { failureThreshold: 5, openMs: 10000, stage: 'search' },
+      );
 
       if (!response.data?.[0]?.embedding) {
         throw new Error('Voyage API returned empty query embedding');

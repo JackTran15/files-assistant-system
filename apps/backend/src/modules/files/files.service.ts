@@ -8,7 +8,7 @@ import { ChunkEntity } from './entities/chunk.entity';
 import { SearchFilesDto } from './dto/search-files.dto';
 import { FileStatus, FileType } from '@files-assistant/core';
 import { KafkaProducerService } from '../kafka/kafka.producer';
-import { createFileUploadedEvent } from '@files-assistant/events';
+import { createFileUploadedEvent, TOPICS } from '@files-assistant/events';
 import { ChunkLookupService } from './chunk-lookup.service';
 
 export interface FileStatusEvent {
@@ -62,8 +62,8 @@ export class FilesService {
 
     try {
       await this.kafkaProducer.publish(
-        'file.uploaded',
-        tenantId,
+        TOPICS.FILE_UPLOADED,
+        saved.id,
         createFileUploadedEvent({
           fileId: saved.id,
           tenantId,
@@ -118,8 +118,8 @@ export class FilesService {
 
     try {
       await this.kafkaProducer.publish(
-        'file.uploaded',
-        file.tenantId,
+        TOPICS.FILE_UPLOADED,
+        file.id,
         createFileUploadedEvent({
           fileId: file.id,
           tenantId: file.tenantId,

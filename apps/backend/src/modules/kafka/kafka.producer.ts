@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Kafka, Producer } from 'kafkajs';
+import { TOPIC_KEYS } from '@files-assistant/events';
 
 @Injectable()
 export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
@@ -36,6 +37,15 @@ export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
   }
 
   async publish(topic: string, key: string, value: unknown): Promise<void> {
+    if (!key) {
+      throw new Error(`Kafka key is required for topic "${topic}"`);
+    }
+    const expectedKey = TOPIC_KEYS[topic as keyof typeof TOPIC_KEYS];
+    if (!expectedKey) {
+      this.logger.warn(
+        `Publishing to topic "${topic}" without declared key contract`,
+      );
+    }
     const payloadSize = Buffer.byteLength(JSON.stringify(value), 'utf8');
     this.logger.log(
       `Publishing event topic="${topic}" key="${key}" bytes=${payloadSize}`,

@@ -1,5 +1,6 @@
 import { Client } from 'pg';
 import { Kafka } from 'kafkajs';
+import { TOPIC_PARTITIONS } from '@files-assistant/events';
 
 const TEST_DB_PORT = 5434;
 const TEST_DB_NAME = 'files_assistant_test';
@@ -80,14 +81,17 @@ async function ensureKafkaTopics(): Promise<void> {
   await admin.connect();
 
   const existing = await admin.listTopics();
-  const required = ['file.uploaded', 'file.extracted', 'file.ready', 'file.failed'];
-  const missing = required.filter((t) => !existing.includes(t));
+  const required = Object.entries(TOPIC_PARTITIONS).map(([topic, partitions]) => ({
+    topic,
+    numPartitions: partitions,
+  }));
+  const missing = required.filter(({ topic }) => !existing.includes(topic));
 
   if (missing.length > 0) {
     await admin.createTopics({
-      topics: missing.map((topic) => ({
+      topics: missing.map(({ topic, numPartitions }) => ({
         topic,
-        numPartitions: 1,
+        numPartitions,
         replicationFactor: 1,
       })),
     });

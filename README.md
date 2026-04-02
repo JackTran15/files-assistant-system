@@ -213,11 +213,11 @@ The system uses three transport layers with clearly separated concerns:
 
 | Topic | Producer | Consumer | Purpose |
 |-------|----------|----------|---------|
-| `file.uploaded` | Backend | Agent (`agent-workers`) | Trigger ingestion pipeline |
+| `file.uploaded` | Backend | Agent (`agent-ingest-workers`) | Trigger ingestion pipeline |
 | `file.extracted` | Agent | Backend (`backend-notifications`) | Persist extracted text |
 | `file.ready` | Agent | Backend (`backend-notifications`) | Mark file as searchable |
 | `file.failed` | Agent | Backend (`backend-notifications`) | Record processing failure |
-| `chat.request` | Backend | Agent (`agent-workers`) | Trigger chat response |
+| `chat.request` | Backend | Agent (`agent-chat-workers`) | Trigger chat response |
 | `dlq.file.uploaded` | Agent | — (ops monitoring) | Poison message quarantine |
 | `dlq.chat.request` | Agent | — (ops monitoring) | Poison message quarantine |
 
@@ -233,6 +233,59 @@ The system uses three transport layers with clearly separated concerns:
 ### Error Handling & Degradation
 
 Chat errors surface through the gRPC/SSE path; ingestion failures are published as `file.failed` with a **stage** (`extraction`, `chunking`, or `embedding`). The `embedding` stage covers both Voyage API failures and Weaviate storage failures. Poison messages are routed to dead-letter queues.
+
+### SLO & Reliability Metrics
+
+Track these service-level indicators from structured metric logs:
+
+| SLI | Target |
+|-----|--------|
+| `chat_stream_completed / chat_stream_created` | >= 99.5% |
+| Chat first-token latency P95 | < 2.5s |
+| `ingestion_completed / ingestion_started` | >= 99.0% |
+| SSE reconnect failure rate | < 1.0% |
+| DLQ message growth over 24h | 0 sustained growth |
+
+Metric events emitted by code:
+- Backend: `chat_stream_created`, `chat_stream_completed`, `chat_stream_cancelled`, `chat_stream_timeout`
+- Agent: `ingestion_started`, `ingestion_completed`, `ingestion_failed`, `agent_chat_started`, `agent_chat_completed`, `agent_chat_failed`
+- Web: `web_sse_open`, `web_sse_reconnect_attempt`, `web_sse_error`, `web_chat_stream_start`, `web_chat_stream_completed`
+
+### Kafka Partition Plan
+
+The workspace defines topic partition expectations in `libs/events/src/lib/topics.ts` (`TOPIC_PARTITIONS`), and local reset tooling creates matching topics:
+
+| Topic | Key | Partitions |
+|-------|-----|------------|
+| `chat.request` | `correlationId` | 12 |
+| `file.uploaded` | `fileId` | 24 |
+| `file.extracted` | `fileId` | 12 |
+| `file.ready` | `fileId` | 12 |
+| `file.failed` | `fileId` | 12 |
+| `dlq.chat.request` | original key | 6 |
+| `dlq.file.uploaded` | original key | 6 |
+| `dlq.file.extracted` | original key | 6 |
+
+Use `make flush-kafka` to recreate local topics with partition counts.
+
+### Worker Split (Agent)
+
+The agent can now run in dedicated modes for independent horizontal scaling:
+- `AGENT_WORKER_MODE=chat` -> consumes chat only (`agent-chat-workers`)
+- `AGENT_WORKER_MODE=ingestion` -> consumes ingestion only (`agent-ingest-workers`)
+- `AGENT_WORKER_MODE=all` -> consumes both (development default)
+
+Nx targets:
+- `pnpm exec nx run agent:serve-chat`
+- `pnpm exec nx run agent:serve-ingestion`
+
+### DLQ Operations Runbook
+
+1. Alert triggers when any DLQ topic grows continuously or oldest message age exceeds threshold.
+2. Inspect message payload and root cause (schema mismatch, dependency outage, poison input).
+3. Fix root cause first (code/config/upstream dependency).
+4. Replay in controlled batches with original message key preserved.
+5. Stop replay if DLQ re-entry rate rises; quarantine offending payloads.
 
 ### Migration (schema change)
 

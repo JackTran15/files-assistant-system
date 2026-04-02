@@ -61,6 +61,20 @@
         }
       }
     },
+    "serve-chat": {
+      "continuous": true,
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "AGENT_WORKER_MODE=chat pnpm exec nx run agent:serve:development"
+      }
+    },
+    "serve-ingestion": {
+      "continuous": true,
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "AGENT_WORKER_MODE=ingestion pnpm exec nx run agent:serve:development"
+      }
+    },
     "test": {
       "options": {
         "passWithNoTests": true

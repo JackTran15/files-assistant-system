@@ -14,6 +14,8 @@ import {
   stripThinkingBlocks,
   validateAndRepairCitationMapping,
 } from '../utils/citation-mapping';
+import { logMetric } from '../utils/metric-log';
+import { KafkaEventAdapter } from '../adapters/kafka-event.adapter';
 
 @Controller()
 export class ChatConsumer {
@@ -21,6 +23,7 @@ export class ChatConsumer {
 
   constructor(
     private readonly grpcResponseAdapter: GrpcResponseAdapter,
+    private readonly kafkaEventAdapter: KafkaEventAdapter,
     @Inject('SUPERVISOR_AGENT')
     private readonly supervisorAgent: Agent,
     @Optional()
@@ -73,6 +76,11 @@ export class ChatConsumer {
     this.logger.log(
       `Chat request ${event.correlationId} context: tenant=${event.tenantId}, conversation=${event.conversationId}`,
     );
+    logMetric(this.logger, 'agent_chat_started', {
+      correlationId: event.correlationId,
+      conversationId: event.conversationId,
+      tenantId: event.tenantId,
+    });
 
     if (event.fileIds?.length) {
       this.logger.log(
@@ -145,7 +153,30 @@ export class ChatConsumer {
       this.logger.log(
         `Chat request ${event.correlationId} processed (${sources.length} sources, ${mapping.claims.length} claims, ${Date.now() - startedAt}ms)`,
       );
+      logMetric(this.logger, 'agent_chat_completed', {
+        correlationId: event.correlationId,
+        conversationId: event.conversationId,
+        durationMs: Date.now() - startedAt,
+        sourceCount: sources.length,
+        claimCount: mapping.claims.length,
+      });
     } catch (error) {
+      try {
+        await this.kafkaEventAdapter.publishDlq(
+          'CHAT_REQUEST',
+          event.correlationId,
+          {
+            event,
+            reason: error instanceof Error ? error.message : String(error),
+            timestamp: new Date().toISOString(),
+          },
+        );
+      } catch (dlqError) {
+        this.logger.error(
+          `Failed to publish chat DLQ for ${event.correlationId}`,
+          dlqError instanceof Error ? dlqError.stack : String(dlqError),
+        );
+      }
       stream.sendChunk(
         `[Error: ${error instanceof Error ? error.message : String(error)}]`,
         true,
@@ -154,6 +185,11 @@ export class ChatConsumer {
         `Chat request ${event.correlationId} failed after ${Date.now() - startedAt}ms`,
         error,
       );
+      logMetric(this.logger, 'agent_chat_failed', {
+        correlationId: event.correlationId,
+        conversationId: event.conversationId,
+        durationMs: Date.now() - startedAt,
+      });
     }
   }
 }

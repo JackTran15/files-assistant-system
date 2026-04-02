@@ -88,7 +88,14 @@ wipe-vectors: ## Delete and recreate the Weaviate FileChunks collection
 
 flush-kafka: ## Delete and recreate all Kafka topics
 	docker compose exec redpanda rpk topic delete file.uploaded file.ready file.failed file.extracted chat.request dlq.file.uploaded dlq.file.extracted dlq.chat.request --brokers localhost:9092 || true
-	docker compose exec redpanda rpk topic create file.uploaded file.ready file.failed file.extracted chat.request dlq.file.uploaded dlq.file.extracted dlq.chat.request --brokers localhost:9092 || true
+	docker compose exec redpanda rpk topic create file.uploaded --partitions 24 --brokers localhost:9092 || true
+	docker compose exec redpanda rpk topic create chat.request --partitions 12 --brokers localhost:9092 || true
+	docker compose exec redpanda rpk topic create file.extracted --partitions 12 --brokers localhost:9092 || true
+	docker compose exec redpanda rpk topic create file.ready --partitions 12 --brokers localhost:9092 || true
+	docker compose exec redpanda rpk topic create file.failed --partitions 12 --brokers localhost:9092 || true
+	docker compose exec redpanda rpk topic create dlq.file.uploaded --partitions 6 --brokers localhost:9092 || true
+	docker compose exec redpanda rpk topic create dlq.file.extracted --partitions 6 --brokers localhost:9092 || true
+	docker compose exec redpanda rpk topic create dlq.chat.request --partitions 6 --brokers localhost:9092 || true
 
 # ── E2E Tests ────────────────────────────────────────────────
 

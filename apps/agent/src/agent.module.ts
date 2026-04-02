@@ -4,6 +4,14 @@ import { IngestionConsumer } from './consumers/ingestion.consumer';
 import { ChatConsumer } from './consumers/chat.consumer';
 import { AgentConfigModule } from './config/agent-config.module';
 
+const workerMode = process.env['AGENT_WORKER_MODE'] ?? 'all';
+const controllers =
+  workerMode === 'chat'
+    ? [ChatConsumer]
+    : workerMode === 'ingestion'
+      ? [IngestionConsumer]
+      : [IngestionConsumer, ChatConsumer];
+
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -12,6 +20,6 @@ import { AgentConfigModule } from './config/agent-config.module';
     }),
     AgentConfigModule,
   ],
-  controllers: [IngestionConsumer, ChatConsumer],
+  controllers,
 })
 export class AgentModule {}

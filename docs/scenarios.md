@@ -367,7 +367,8 @@ graph LR
 
 | Group | Service | Subscribes to |
 |-------|---------|---------------|
-| `agent-workers` | Agent | `file.uploaded`, `chat.request` |
+| `agent-ingest-workers` | Agent (ingestion mode) | `file.uploaded` |
+| `agent-chat-workers` | Agent (chat mode) | `chat.request` |
 | `backend-notifications` | Backend | `file.ready`, `file.failed`, `file.extracted` |
 
 **Why the split?**
@@ -387,3 +388,32 @@ graph LR
 | **Redpanda** | Kafka-compatible event broker | Durable (log) |
 | **Backend API** | HTTP/SSE gateway, Kafka producer/consumer, gRPC client | Stateless |
 | **Agent Service** | FilesAssistant agent + IngestionConsumer, Kafka consumer, gRPC server | Stateless |
+
+---
+
+## Reliability Controls
+
+### Kafka partitioning and keying
+
+| Topic | Message key | Target partitions |
+|-------|-------------|-------------------|
+| `chat.request` | `correlationId` | 12 |
+| `file.uploaded` | `fileId` | 24 |
+| `file.extracted` | `fileId` | 12 |
+| `file.ready` | `fileId` | 12 |
+| `file.failed` | `fileId` | 12 |
+| `dlq.chat.request` | original key | 6 |
+| `dlq.file.uploaded` | original key | 6 |
+| `dlq.file.extracted` | original key | 6 |
+
+### Stream and dependency resilience
+
+- Backend stream lifecycle has explicit timeout/cancel handling and deterministic cleanup.
+- Agent extraction/embedding/search paths use retry with jitter and circuit-breaker protection.
+- Web SSE client uses bounded reconnect backoff and preserves partial assistant output on disconnect.
+
+### Operational metrics
+
+- Backend: `chat_stream_created`, `chat_stream_completed`, `chat_stream_cancelled`, `chat_stream_timeout`
+- Agent: `ingestion_started`, `ingestion_completed`, `ingestion_failed`, `agent_chat_started`, `agent_chat_completed`, `agent_chat_failed`
+- Web: `web_sse_open`, `web_sse_reconnect_attempt`, `web_sse_error`, `web_chat_stream_start`, `web_chat_stream_completed`
